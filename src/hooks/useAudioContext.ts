@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -25,12 +24,12 @@ export function useAudioContext() {
   useEffect(() => {
     try {
       // Tone.js automatically creates its context
-      const context = Tone.getContext();
+      const toneContext = Tone.getContext();
       const masterVolume = new Tone.Volume(-12).toDestination();
       masterVolumeRef.current = masterVolume;
       
       setState({
-        context,
+        context: toneContext,
         isStarted: false,
         isLoaded: true,
         error: null,
