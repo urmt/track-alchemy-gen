@@ -1,8 +1,9 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
 export interface AudioContextState {
-  context: Tone.Context | null;
+  context: Tone.BaseContext | null;
   isStarted: boolean;
   isLoaded: boolean;
   error: string | null;
