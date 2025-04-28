@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -12,6 +11,7 @@ import Meters from "@/components/Meters";
 import InstrumentFader from "@/components/InstrumentFader";
 import GenreSelector from "@/components/GenreSelector";
 import { generateChordProgression } from "@/lib/utils";
+import SampleManager from "@/components/SampleManager";
 
 const Index = () => {
   const { toast } = useToast();
@@ -114,6 +114,7 @@ const Index = () => {
             />
             
             <div className="flex flex-col space-y-4">
+              <SampleManager />
               <div className="flex justify-between items-center">
                 <Button 
                   onClick={handleGenerate}
