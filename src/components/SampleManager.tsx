@@ -1,20 +1,41 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useSampleManager, InstrumentType } from '@/hooks/useSampleManager';
-import { FileAudio, Trash2, Upload } from 'lucide-react';
+import { FileAudio, Trash2, Upload, Play } from 'lucide-react';
 
 export default function SampleManager() {
   const { toast } = useToast();
-  const { uploadSample, deleteSample, getSamples, isUploading } = useSampleManager();
+  const { uploadSample, deleteSample, getSamples, getSampleUrl, isUploading } = useSampleManager();
   const [samples, setSamples] = useState<any[]>([]);
+  const [audioPlayer, setAudioPlayer] = useState<HTMLAudioElement | null>(null);
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Initialize audio player
+    const player = new Audio();
+    player.addEventListener('ended', () => setCurrentlyPlaying(null));
+    setAudioPlayer(player);
+    
+    // Cleanup
+    return () => {
+      player.pause();
+      player.src = '';
+    };
+  }, []);
 
   const loadSamples = async () => {
     const result = await getSamples();
     if (result.success) {
       setSamples(result.data || []);
+    } else {
+      toast({ 
+        title: "Error", 
+        description: result.error || "Failed to load samples",
+        variant: "destructive"
+      });
     }
   };
 
@@ -22,24 +43,39 @@ export default function SampleManager() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const result = await uploadSample(file, instrumentType);
-    if (result.success) {
-      toast({ title: "Success", description: "Sample uploaded successfully" });
-      loadSamples();
-    } else {
+    try {
+      const result = await uploadSample(file, instrumentType);
+      if (result.success) {
+        toast({ title: "Success", description: "Sample uploaded successfully" });
+        await loadSamples();
+      } else {
+        toast({ 
+          title: "Error", 
+          description: result.error || "Failed to upload sample",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error("Upload error:", error);
       toast({ 
         title: "Error", 
-        description: result.error || "Failed to upload sample",
+        description: "An unexpected error occurred during upload",
         variant: "destructive"
       });
     }
   };
 
   const handleDelete = async (id: string, filePath: string) => {
+    // Stop playing if this is the current sample
+    if (currentlyPlaying === id && audioPlayer) {
+      audioPlayer.pause();
+      setCurrentlyPlaying(null);
+    }
+
     const result = await deleteSample(id, filePath);
     if (result.success) {
       toast({ title: "Success", description: "Sample deleted successfully" });
-      loadSamples();
+      await loadSamples();
     } else {
       toast({ 
         title: "Error", 
@@ -47,6 +83,31 @@ export default function SampleManager() {
         variant: "destructive"
       });
     }
+  };
+
+  const handlePlaySample = (id: string, filePath: string) => {
+    if (!audioPlayer) return;
+
+    // If already playing this sample, stop it
+    if (currentlyPlaying === id) {
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
+      setCurrentlyPlaying(null);
+      return;
+    }
+
+    // Play the selected sample
+    const url = getSampleUrl(filePath);
+    audioPlayer.src = url;
+    audioPlayer.play().catch(error => {
+      console.error("Error playing sample:", error);
+      toast({ 
+        title: "Playback Error", 
+        description: "Could not play the sample",
+        variant: "destructive"
+      });
+    });
+    setCurrentlyPlaying(id);
   };
 
   return (
@@ -86,30 +147,46 @@ export default function SampleManager() {
             ))}
           </div>
 
-          <div className="space-y-4">
-            {samples.map((sample) => (
-              <div
-                key={sample.id}
-                className="flex items-center justify-between p-4 bg-secondary/10 rounded-lg"
-              >
-                <div className="flex items-center space-x-4">
-                  <FileAudio className="w-5 h-5" />
-                  <div>
-                    <p className="font-medium">{sample.name}</p>
-                    <p className="text-sm text-muted-foreground capitalize">
-                      {sample.instrument_type}
-                    </p>
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+            {samples.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No samples uploaded yet
+              </div>
+            ) : (
+              samples.map((sample) => (
+                <div
+                  key={sample.id}
+                  className="flex items-center justify-between p-4 bg-secondary/10 rounded-lg"
+                >
+                  <div className="flex items-center space-x-4">
+                    <FileAudio className="w-5 h-5" />
+                    <div>
+                      <p className="font-medium">{sample.name}</p>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {sample.instrument_type}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handlePlaySample(sample.id, sample.file_path)}
+                      className="mr-1"
+                    >
+                      <Play className={`w-4 h-4 ${currentlyPlaying === sample.id ? 'text-green-500' : ''}`} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(sample.id, sample.file_path)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDelete(sample.id, sample.file_path)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </SheetContent>

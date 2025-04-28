@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -274,8 +273,24 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
   }, [isPlaying, isStarted, startContext]);
   
   const setInstrumentVolume = useCallback((instrumentId: InstrumentType, volumeDb: number) => {
+    console.log(`Setting ${instrumentId} volume to ${volumeDb}dB`);
+    
     if (instrumentsRef.current[instrumentId].volumeNode) {
+      // Directly set the volume value
       instrumentsRef.current[instrumentId].volumeNode!.volume.value = volumeDb;
+      
+      // Update state
+      setInstruments(prev => prev.map(inst => 
+        inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
+      ));
+    } else {
+      console.warn(`Volume node for ${instrumentId} not initialized`);
+      
+      // Still update the stored volume value even if node isn't ready
+      instrumentsRef.current[instrumentId] = {
+        ...instrumentsRef.current[instrumentId],
+        volume: volumeDb
+      };
       
       // Update state
       setInstruments(prev => prev.map(inst => 
