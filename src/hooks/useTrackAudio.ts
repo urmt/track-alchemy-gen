@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
+import { useSampleManager } from './useSampleManager';
 
 export type InstrumentType = 'drums' | 'bass' | 'guitar' | 'keys';
 
@@ -19,6 +20,8 @@ export interface InstrumentTrack {
   player: Tone.Player | null;
   volumeNode: Tone.Volume | null;
   analyser: Tone.Analyser | null;
+  samplePath: string | null;
+  loadingState: 'idle' | 'loading' | 'loaded' | 'error';
 }
 
 interface UseTrackAudioProps {
@@ -28,6 +31,7 @@ interface UseTrackAudioProps {
 }
 
 export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrackAudioProps) {
+  const { getSamples, getSampleUrl } = useSampleManager();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +45,50 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
   
   // Using a ref for instruments to maintain references across renders
   const instrumentsRef = useRef<Record<InstrumentType, InstrumentTrack>>({
-    drums: { id: 'drums', name: 'Drums', volume: -12, meterValue: 0, player: null, volumeNode: null, analyser: null },
-    bass: { id: 'bass', name: 'Bass', volume: -15, meterValue: 0, player: null, volumeNode: null, analyser: null },
-    guitar: { id: 'guitar', name: 'Guitar', volume: -18, meterValue: 0, player: null, volumeNode: null, analyser: null },
-    keys: { id: 'keys', name: 'Keys', volume: -20, meterValue: 0, player: null, volumeNode: null, analyser: null },
+    drums: { 
+      id: 'drums', 
+      name: 'Drums', 
+      volume: -12, 
+      meterValue: 0, 
+      player: null, 
+      volumeNode: null, 
+      analyser: null,
+      samplePath: null,
+      loadingState: 'idle'
+    },
+    bass: { 
+      id: 'bass', 
+      name: 'Bass', 
+      volume: -15, 
+      meterValue: 0, 
+      player: null, 
+      volumeNode: null, 
+      analyser: null,
+      samplePath: null,
+      loadingState: 'idle'
+    },
+    guitar: { 
+      id: 'guitar', 
+      name: 'Guitar', 
+      volume: -18, 
+      meterValue: 0, 
+      player: null, 
+      volumeNode: null, 
+      analyser: null,
+      samplePath: null,
+      loadingState: 'idle'
+    },
+    keys: { 
+      id: 'keys', 
+      name: 'Keys', 
+      volume: -20, 
+      meterValue: 0, 
+      player: null, 
+      volumeNode: null, 
+      analyser: null,
+      samplePath: null,
+      loadingState: 'idle'
+    },
   });
   
   const [instruments, setInstruments] = useState<InstrumentTrack[]>(
@@ -71,20 +115,37 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
     };
   }, [masterVolume]);
   
-  // Example dummy samples for development
-  const dummySamples = {
-    drums: '/samples/drums.mp3',
-    bass: '/samples/bass.mp3',
-    guitar: '/samples/guitar.mp3',
-    keys: '/samples/keys.mp3',
-  };
-
-  // For development, we'll use placeholder audio URLs
-  // In a real implementation, these would come from a database based on genre/mood
-  const generatePlaceholderUrl = (instrument: InstrumentType): string => {
-    // This would be replaced by a real sample selection function
-    return dummySamples[instrument] || "https://tonejs.github.io/audio/berklee/gong_1.mp3";
-  };
+  // Get sample URL for an instrument type, preferring user uploads
+  const getSampleUrlForInstrument = useCallback(async (instrumentType: InstrumentType): Promise<string | null> => {
+    try {
+      // Try to get user uploaded samples for this instrument
+      const result = await getSamples();
+      
+      if (result.success && result.data && result.data.length > 0) {
+        // Filter samples by instrument type
+        const instrumentSamples = result.data.filter(
+          sample => sample.instrument_type === instrumentType
+        );
+        
+        if (instrumentSamples.length > 0) {
+          // Use the most recently uploaded sample
+          const latestSample = instrumentSamples.reduce((latest, current) => {
+            return new Date(current.created_at) > new Date(latest.created_at) ? current : latest;
+          }, instrumentSamples[0]);
+          
+          console.log(`Using uploaded ${instrumentType} sample: ${latestSample.name}`);
+          return getSampleUrl(latestSample.file_path);
+        }
+      }
+      
+      // Fallback to default samples if no user samples found
+      console.log(`No uploaded ${instrumentType} samples found, using default`);
+      return `/samples/${instrumentType}.mp3`;
+    } catch (err) {
+      console.error(`Error getting ${instrumentType} sample:`, err);
+      return null;
+    }
+  }, [getSamples, getSampleUrl]);
 
   const generateTrack = useCallback(async (settings: TrackSettings) => {
     if (!isStarted) {
@@ -113,7 +174,29 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       
       // Set up new players with the selected settings
       for (const instrumentId of Object.keys(instrumentsRef.current) as InstrumentType[]) {
-        const url = generatePlaceholderUrl(instrumentId);
+        // Update instrument loading state
+        instrumentsRef.current[instrumentId].loadingState = 'loading';
+        setInstruments(prev => prev.map(i => 
+          i.id === instrumentId ? { ...i, loadingState: 'loading' } : i
+        ));
+        
+        // Try to get a user uploaded sample or fall back to default
+        const url = await getSampleUrlForInstrument(instrumentId);
+        instrumentsRef.current[instrumentId].samplePath = url;
+        
+        if (!url) {
+          console.error(`Could not find a sample for ${instrumentId}`);
+          setError(prev => prev || `No sample found for ${instrumentId}. Using fallback.`);
+          
+          // Update instrument state to show error
+          instrumentsRef.current[instrumentId].loadingState = 'error';
+          setInstruments(prev => prev.map(i => 
+            i.id === instrumentId ? { ...i, loadingState: 'error', samplePath: null } : i
+          ));
+          
+          // Continue to next instrument
+          continue;
+        }
         
         // Create audio chain: Player -> Volume -> Analyser -> Master Volume
         const volumeNode = new Tone.Volume(instrumentsRef.current[instrumentId].volume);
@@ -124,14 +207,29 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
           url,
           loop: true,
           onload: () => {
-            console.log(`${instrumentId} loaded`);
+            console.log(`${instrumentId} loaded successfully from ${url}`);
             // Update state to show this instrument is ready
+            instrumentsRef.current[instrumentId].loadingState = 'loaded';
             setInstruments(prev => prev.map(i => 
-              i.id === instrumentId ? { ...i, player, volumeNode, analyser } : i
+              i.id === instrumentId ? { 
+                ...i, 
+                player, 
+                volumeNode, 
+                analyser, 
+                loadingState: 'loaded',
+                samplePath: url
+              } : i
             ));
           },
           onerror: (e) => {
-            console.error(`Error loading ${instrumentId}:`, e);
+            console.error(`Error loading ${instrumentId} from ${url}:`, e);
+            
+            // Update instrument state to show error
+            instrumentsRef.current[instrumentId].loadingState = 'error';
+            setInstruments(prev => prev.map(i => 
+              i.id === instrumentId ? { ...i, loadingState: 'error' } : i
+            ));
+            
             // Use fallback to a simple oscillator if sample fails to load
             setError(prev => prev || `Failed to load ${instrumentId} sample. Using fallback.`);
             
@@ -146,22 +244,26 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
             }).connect(volumeNode);
             
             // Replace the player with oscillator in the instrument object
+            instrumentsRef.current[instrumentId] = {
+              ...instrumentsRef.current[instrumentId],
+              player: fallbackOsc as unknown as Tone.Player,
+              loadingState: 'error'
+            };
+            
             setInstruments(prev => prev.map(i => 
-              i.id === instrumentId ? { ...i, player: fallbackOsc as unknown as Tone.Player } : i
+              i.id === instrumentId ? { 
+                ...i, 
+                player: fallbackOsc as unknown as Tone.Player, 
+                loadingState: 'error',
+                volumeNode, 
+                analyser 
+              } : i
             ));
           },
         }).connect(volumeNode);
         
         volumeNode.connect(analyser);
         volumeNode.connect(masterVolume || Tone.getDestination());
-        
-        // Store in our ref
-        instrumentsRef.current[instrumentId] = {
-          ...instrumentsRef.current[instrumentId],
-          player,
-          volumeNode,
-          analyser
-        };
       }
       
       setTrackSettings(settings);
@@ -176,7 +278,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       setError("Failed to generate track. Please try again.");
       setIsLoading(false);
     }
-  }, [isStarted, masterVolume, startContext]);
+  }, [isStarted, masterVolume, startContext, getSampleUrlForInstrument]);
   
   const startMeterMonitoring = useCallback(() => {
     if (meterIntervalRef.current) {

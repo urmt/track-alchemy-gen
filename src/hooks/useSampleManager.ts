@@ -22,25 +22,44 @@ export function useSampleManager() {
   useEffect(() => {
     const initializeBucket = async () => {
       try {
-        const { data: buckets, error } = await supabase.storage.listBuckets();
+        // First check if the bucket exists
+        const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+        
+        if (listError) {
+          console.error('Error listing buckets:', listError);
+          return;
+        }
         
         // Check if the bucket already exists
         const bucketExists = buckets?.some(bucket => bucket.name === 'audio_samples');
         
         if (!bucketExists) {
+          console.log('audio_samples bucket does not exist, attempting to create it');
+          
           // Create the bucket if it doesn't exist
-          const { error: createError } = await supabase.storage.createBucket('audio_samples', {
-            public: true
+          const { data, error: createError } = await supabase.storage.createBucket('audio_samples', {
+            public: true,
+            fileSizeLimit: 50000000, // 50MB
+            allowedMimeTypes: ['audio/mpeg', 'audio/wav', 'audio/ogg']
           });
           
           if (createError) {
             console.error('Error creating bucket:', createError);
+            
+            // If we can't create the bucket, check if the error is due to permissions
+            // We'll still try to continue, as the bucket might actually exist but with different permissions
+            setError(`Storage error: ${createError.message}`);
+          } else {
+            console.log('Successfully created audio_samples bucket');
           }
+        } else {
+          console.log('audio_samples bucket already exists');
         }
         
         setIsBucketInitialized(true);
       } catch (err) {
         console.error('Error initializing storage bucket:', err);
+        setError('Failed to initialize storage. Please try again later.');
       }
     };
     
@@ -52,8 +71,12 @@ export function useSampleManager() {
       setIsUploading(true);
       setError(null);
 
+      if (!isBucketInitialized) {
+        throw new Error('Storage not initialized yet. Please try again.');
+      }
+
       // Make sure file has a unique name
-      const fileName = `${Date.now()}-${file.name}`;
+      const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
       
       // Upload file to storage
       const { error: uploadError, data } = await supabase.storage
@@ -82,7 +105,7 @@ export function useSampleManager() {
     } finally {
       setIsUploading(false);
     }
-  }, []);
+  }, [isBucketInitialized]);
 
   const deleteSample = useCallback(async (id: string, filePath: string) => {
     try {

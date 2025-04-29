@@ -211,6 +211,7 @@ const Index = () => {
                 isLoading={trackAudio.isLoading}
                 isPlaying={trackAudio.isPlaying}
                 error={trackAudio.error}
+                instruments={trackAudio.instruments}
               />
             </div>
           )}
