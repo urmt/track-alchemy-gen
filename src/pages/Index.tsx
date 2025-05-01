@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Pause, ChevronDown, Download } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
-import { useTrackAudio, type TrackSettings } from "@/hooks/useTrackAudio";
+import { useTrackAudio, type TrackSettings } from "@/hooks/audio/useTrackAudio";
 import TestTone from "@/components/TestTone";
 import DebugPanel from "@/components/DebugPanel";
 import Meters from "@/components/Meters";

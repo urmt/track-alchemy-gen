@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { AudioContextState } from '@/hooks/useAudioContext';
-import { TrackSettings, InstrumentTrack } from '@/hooks/useTrackAudio';
+import { TrackSettings, InstrumentTrack } from '@/hooks/audio/types';
 import { Badge } from "@/components/ui/badge";
 
 interface DebugPanelProps {
