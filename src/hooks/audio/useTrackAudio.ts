@@ -10,7 +10,7 @@ import { useInstrumentSetup } from './useInstrumentSetup';
 
 export type { InstrumentType, TrackSettings, InstrumentTrack } from './types';
 
-export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrackAudioProps) {
+export function useTrackAudio({ masterVolume, isStarted, startContext, getContextId }: UseTrackAudioProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +91,17 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
     return setupMasterAnalyser(masterVolume);
   }, [masterVolume, setupMasterAnalyser]);
   
+  // Clean up all instruments when unmounting or when audio context changes
+  useEffect(() => {
+    return () => {
+      Object.values(instrumentsRef.current).forEach(instrument => {
+        if (instrument.player) instrument.player.dispose();
+        if (instrument.volumeNode) instrument.volumeNode.dispose();
+        if (instrument.analyser) instrument.analyser.dispose();
+      });
+    };
+  }, []);
+  
   // Function to reload track from saved state
   const regenerateTrackFromSavedState = useCallback(async () => {
     if (!isStarted) {
@@ -123,10 +134,13 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       // Update instruments state to show loading state
       setInstruments(prev => prev.map(i => ({ ...i, loadingState: 'loading' })));
       
+      const currentContextId = getContextId ? getContextId() : null;
+      console.log("Regenerating with context ID:", currentContextId);
+      
       // Set up players with saved sample paths
       for (const instrumentId of Object.keys(instrumentsRef.current) as InstrumentType[]) {
         const instrument = instrumentsRef.current[instrumentId];
-        await setupInstrument(instrumentId, instrument, masterVolume, setInstruments, setError);
+        await setupInstrument(instrumentId, instrument, masterVolume, setInstruments, setError, currentContextId);
       }
       
       setIsTrackGenerated(true);
@@ -141,7 +155,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       setError("Failed to regenerate track. Please try again.");
       setIsLoading(false);
     }
-  }, [isStarted, masterVolume, startContext, setupInstrument, trackSettings, startMeterMonitoring, setIsTrackGenerated]);
+  }, [isStarted, masterVolume, startContext, setupInstrument, trackSettings, startMeterMonitoring, setIsTrackGenerated, getContextId]);
 
   // Load track state from session storage on initial load
   useEffect(() => {
@@ -186,6 +200,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
         }
       });
       
+      const currentContextId = getContextId ? getContextId() : null;
+      console.log("Generating with context ID:", currentContextId);
+      
       // Set up new players with the selected settings
       for (const instrumentId of Object.keys(instrumentsRef.current) as InstrumentType[]) {
         // Update instrument loading state
@@ -200,7 +217,8 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
           instrumentsRef.current[instrumentId], 
           masterVolume, 
           setInstruments,
-          setError
+          setError,
+          currentContextId
         );
       }
       
@@ -216,7 +234,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       setError("Failed to generate track. Please try again.");
       setIsLoading(false);
     }
-  }, [isStarted, masterVolume, startContext, setTrackSettings, setupInstrument, startMeterMonitoring, setIsTrackGenerated]);
+  }, [isStarted, masterVolume, startContext, setTrackSettings, setupInstrument, startMeterMonitoring, setIsTrackGenerated, getContextId]);
 
   const togglePlayback = useCallback(async () => {
     if (!isStarted) {
@@ -227,18 +245,34 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       // Stop all instruments
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.player) {
-          instrument.player.stop();
+          try {
+            instrument.player.stop();
+          } catch (err) {
+            console.error(`Error stopping ${instrument.id}:`, err);
+          }
         }
       });
       setIsPlaying(false);
     } else {
       // Start all instruments
-      Object.values(instrumentsRef.current).forEach(instrument => {
-        if (instrument.player) {
-          instrument.player.start();
+      let playedSuccessfully = false;
+      
+      for (const instrument of Object.values(instrumentsRef.current)) {
+        if (instrument.player && instrument.loadingState === 'loaded') {
+          try {
+            instrument.player.start();
+            playedSuccessfully = true;
+          } catch (err) {
+            console.error(`Error starting ${instrument.id}:`, err);
+          }
         }
-      });
-      setIsPlaying(true);
+      }
+      
+      setIsPlaying(playedSuccessfully);
+      
+      if (!playedSuccessfully) {
+        setError("Could not play any instruments. Try regenerating the track.");
+      }
     }
   }, [isPlaying, isStarted, startContext]);
   
@@ -251,17 +285,6 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
   const handleDownloadTrack = useCallback(async () => {
     return downloadTrack(isTrackGenerated, instrumentsRef, trackSettings);
   }, [downloadTrack, isTrackGenerated, trackSettings]);
-  
-  // Cleanup when component unmounts
-  useEffect(() => {
-    return () => {
-      Object.values(instrumentsRef.current).forEach(instrument => {
-        if (instrument.player) instrument.player.dispose();
-        if (instrument.volumeNode) instrument.volumeNode.dispose();
-        if (instrument.analyser) instrument.analyser.dispose();
-      });
-    };
-  }, []);
 
   return {
     instruments,

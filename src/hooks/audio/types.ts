@@ -27,6 +27,7 @@ export interface UseTrackAudioProps {
   masterVolume: Tone.Volume | null;
   isStarted: boolean;
   startContext: () => Promise<void>;
+  getContextId?: () => string | null;
 }
 
 export interface TrackDownloadResult {

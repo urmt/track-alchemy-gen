@@ -22,12 +22,12 @@ const Meter: React.FC<MeterProps> = ({ value, label }) => {
   // Define segments for green, yellow, red meter sections
   const segments: MeterSegment[] = [
     // Green segments (0-70%)
-    ...Array(7).fill(0).map((_, i) => ({
+    ...Array(7).fill(0).map(() => ({
       height: 10,
       color: 'bg-studio-meter-low',
     })),
     // Yellow segments (70-90%)
-    ...Array(2).fill(0).map((_, i) => ({
+    ...Array(2).fill(0).map(() => ({
       height: 10,
       color: 'bg-studio-meter-mid',
     })),
@@ -36,7 +36,7 @@ const Meter: React.FC<MeterProps> = ({ value, label }) => {
   ];
 
   // Calculate how many segments to light up
-  const activeLevels = Math.floor(value / 10);
+  const activeLevels = Math.floor((value || 0) / 10);
   
   return (
     <div className="flex flex-col items-center">
@@ -66,16 +66,24 @@ interface MeterGridProps {
 }
 
 const MeterGrid: React.FC<MeterGridProps> = ({ instruments, masterValue }) => {
+  // Ensure we have valid data by providing fallbacks
+  const safeInstruments = instruments.map(instrument => ({
+    ...instrument,
+    meterValue: isNaN(instrument.meterValue) ? 0 : instrument.meterValue
+  }));
+  
+  const safeMasterValue = isNaN(masterValue) ? 0 : masterValue;
+  
   return (
     <div className="flex space-x-4 justify-center items-end p-4">
-      {instruments.map((instrument) => (
+      {safeInstruments.map((instrument) => (
         <Meter 
           key={instrument.id} 
           value={instrument.meterValue} 
           label={instrument.name} 
         />
       ))}
-      <Meter value={masterValue} label="Master" />
+      <Meter value={safeMasterValue} label="Master" />
     </div>
   );
 };

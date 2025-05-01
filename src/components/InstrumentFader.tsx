@@ -1,5 +1,4 @@
-
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Slider } from "@/components/ui/slider";
 
 interface InstrumentFaderProps {
@@ -9,20 +8,28 @@ interface InstrumentFaderProps {
 }
 
 const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange }) => {
-  // Reference to track previous value 
+  // Keep a local state for UI updates
+  const [localValue, setLocalValue] = useState<number>(value);
+  
+  // Reference to track previous value
   const prevValueRef = useRef<number>(value);
   
-  // Update reference when value changes from parent
+  // Update local state when prop value changes from parent
   useEffect(() => {
-    prevValueRef.current = value;
+    if (value !== prevValueRef.current) {
+      setLocalValue(value);
+      prevValueRef.current = value;
+    }
   }, [value]);
   
   // Convert dB value to percentage for display (dB range from -60 to 0)
-  const normalizedValue = ((value + 60) / 60) * 100;
+  const normalizedValue = ((localValue + 60) / 60) * 100;
   
   // Convert back from percentage to dB when slider changes
   const handleChange = (newValue: number[]) => {
     const dbValue = (newValue[0] / 100) * 60 - 60;
+    setLocalValue(dbValue);
+    prevValueRef.current = dbValue;
     onChange(dbValue);
   };
   
@@ -47,7 +54,7 @@ const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange
             onValueChange={handleChange}
           />
         </div>
-        <div className="text-xs font-mono mt-1">{formatDb(value)}</div>
+        <div className="text-xs font-mono mt-1">{formatDb(localValue)}</div>
       </div>
     </div>
   );

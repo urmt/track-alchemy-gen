@@ -20,12 +20,20 @@ export function useAudioContext() {
   });
   
   const masterVolumeRef = useRef<Tone.Volume | null>(null);
+  const contextIdRef = useRef<string | null>(null);
 
   // Initialize audio context
   useEffect(() => {
     try {
+      // Clean up any existing nodes first
+      if (masterVolumeRef.current) {
+        masterVolumeRef.current.dispose();
+      }
+      
       // Tone.js automatically creates its context
       const toneContext = Tone.getContext();
+      contextIdRef.current = toneContext.toString(); // Store context identifier
+      
       const masterVolume = new Tone.Volume(-12).toDestination();
       masterVolumeRef.current = masterVolume;
       
@@ -37,7 +45,7 @@ export function useAudioContext() {
         masterVolume,
       });
       
-      console.log("Audio context initialized");
+      console.log("Audio context initialized with ID:", contextIdRef.current);
     } catch (err) {
       console.error("Failed to initialize audio context:", err);
       setState(prev => ({ 
@@ -97,6 +105,11 @@ export function useAudioContext() {
     }
   }, []);
   
+  // Get context ID for checking
+  const getContextId = useCallback(() => {
+    return contextIdRef.current;
+  }, []);
+  
   // Play a test tone
   const playTestTone = useCallback(async () => {
     if (!state.isStarted) {
@@ -117,5 +130,6 @@ export function useAudioContext() {
     startContext,
     setMasterVolume,
     playTestTone,
+    getContextId,
   };
 }
