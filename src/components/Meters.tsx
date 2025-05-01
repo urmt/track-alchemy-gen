@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 
 interface MeterProps {
@@ -35,8 +36,9 @@ const Meter: React.FC<MeterProps> = ({ value, label }) => {
     { height: 10, color: 'bg-studio-meter-high' },
   ];
 
-  // Calculate how many segments to light up
-  const activeLevels = Math.floor((value || 0) / 10);
+  // Calculate how many segments to light up (ensure valid value)
+  const safeValue = isNaN(value) ? 0 : value;
+  const activeLevels = Math.floor(safeValue / 10);
   
   return (
     <div className="flex flex-col items-center">

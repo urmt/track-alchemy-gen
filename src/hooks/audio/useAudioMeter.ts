@@ -14,12 +14,14 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       const analyser = new Tone.Analyser('waveform', 128);
       masterVolume.connect(analyser);
       masterAnalyserRef.current = analyser;
+      console.log("Master analyser connected");
     }
     
     return () => {
       if (masterAnalyserRef.current) {
         masterAnalyserRef.current.dispose();
         masterAnalyserRef.current = null;
+        console.log("Master analyser disposed");
       }
     };
   }, []);
@@ -35,46 +37,63 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       meterIntervalRef.current = null;
     }
     
+    console.log("Starting meter monitoring");
+    
     // Set up a new interval for meter updates
     meterIntervalRef.current = window.setInterval(() => {
       // Update each instrument meter
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.analyser) {
-          const waveform = instrument.analyser.getValue();
-          // Calculate RMS volume
-          const rms = Math.sqrt(
-            (waveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
-            waveform.length
-          );
-          
-          // Convert to a better visual range (0-100)
-          const meterValue = Math.min(100, Math.max(0, rms * 200));
-          
-          // Update instrument meter value in our ref object
-          instrumentsRef.current[instrument.id].meterValue = meterValue;
-          
-          // Update state to trigger UI update
-          setInstruments(prev => prev.map(i => 
-            i.id === instrument.id ? { ...i, meterValue } : i
-          ));
+          try {
+            const waveform = instrument.analyser.getValue();
+            // Calculate RMS volume
+            const rms = Math.sqrt(
+              (waveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
+              waveform.length
+            );
+            
+            // Convert to a better visual range (0-100)
+            const meterValue = Math.min(100, Math.max(0, rms * 200));
+            
+            // Only update if there's a significant change to reduce rerenders
+            const currentValue = instrumentsRef.current[instrument.id].meterValue;
+            if (Math.abs(currentValue - meterValue) > 1 || (meterValue < 1 && currentValue > 0)) {
+              // Update instrument meter value in our ref object
+              instrumentsRef.current[instrument.id].meterValue = meterValue;
+              
+              // Update state to trigger UI update
+              setInstruments(prev => prev.map(i => 
+                i.id === instrument.id ? { ...i, meterValue } : i
+              ));
+            }
+          } catch (err) {
+            console.warn(`Error reading meter for ${instrument.id}:`, err);
+          }
         } else if (!isPlaying) {
-          // Reset meter when not playing
-          instrumentsRef.current[instrument.id].meterValue = 0;
-          setInstruments(prev => prev.map(i => 
-            i.id === instrument.id ? { ...i, meterValue: 0 } : i
-          ));
+          // Reset meter when not playing and no analyser
+          const currentValue = instrumentsRef.current[instrument.id].meterValue;
+          if (currentValue > 0) {
+            instrumentsRef.current[instrument.id].meterValue = 0;
+            setInstruments(prev => prev.map(i => 
+              i.id === instrument.id ? { ...i, meterValue: 0 } : i
+            ));
+          }
         }
       });
       
       // Update master meter
       if (masterAnalyserRef.current) {
-        const masterWaveform = masterAnalyserRef.current.getValue();
-        const masterRms = Math.sqrt(
-          (masterWaveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
-          masterWaveform.length
-        );
-        const masterMeterVal = Math.min(100, Math.max(0, masterRms * 200));
-        setMasterMeterValue(masterMeterVal);
+        try {
+          const masterWaveform = masterAnalyserRef.current.getValue();
+          const masterRms = Math.sqrt(
+            (masterWaveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
+            masterWaveform.length
+          );
+          const masterMeterVal = Math.min(100, Math.max(0, masterRms * 200));
+          setMasterMeterValue(masterMeterVal);
+        } catch (err) {
+          console.warn("Error reading master meter:", err);
+        }
       } else {
         setMasterMeterValue(0);
       }
@@ -85,6 +104,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       if (meterIntervalRef.current) {
         clearInterval(meterIntervalRef.current);
         meterIntervalRef.current = null;
+        console.log("Meter monitoring stopped");
       }
     };
   }, [isPlaying]);
@@ -95,6 +115,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       if (meterIntervalRef.current) {
         clearInterval(meterIntervalRef.current);
         meterIntervalRef.current = null;
+        console.log("Meter monitoring cleanup on unmount");
       }
       
       if (masterAnalyserRef.current) {

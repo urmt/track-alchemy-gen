@@ -144,16 +144,19 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
       }
       
       setIsTrackGenerated(true);
-      setIsLoading(false);
       
-      // Start meter monitoring to ensure meters update even when not playing
+      // Always start meter monitoring, even if generation wasn't fully successful
       startMeterMonitoring(instrumentsRef, setInstruments);
       
+      setIsLoading(false);
       console.log("Track regenerated with saved settings:", trackSettings);
     } catch (err) {
       console.error("Failed to regenerate track:", err);
       setError("Failed to regenerate track. Please try again.");
       setIsLoading(false);
+      
+      // Still start meter monitoring even with error
+      startMeterMonitoring(instrumentsRef, setInstruments);
     }
   }, [isStarted, masterVolume, startContext, setupInstrument, trackSettings, startMeterMonitoring, setIsTrackGenerated, getContextId]);
 
@@ -294,8 +297,111 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     trackSettings,
     isTrackGenerated,
     masterMeterValue,
-    generateTrack,
-    togglePlayback,
+    generateTrack: useCallback(async (settings: TrackSettings) => {
+      if (!isStarted) {
+        await startContext();
+      }
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        Tone.Transport.bpm.value = settings.bpm;
+        
+        // Update track settings
+        setTrackSettings(settings);
+        
+        // Clean up any existing players
+        Object.values(instrumentsRef.current).forEach(instrument => {
+          if (instrument.player) {
+            instrument.player.stop();
+            instrument.player.dispose();
+          }
+          if (instrument.volumeNode) {
+            instrument.volumeNode.dispose();
+          }
+          if (instrument.analyser) {
+            instrument.analyser.dispose();
+          }
+        });
+        
+        const currentContextId = getContextId ? getContextId() : null;
+        console.log("Generating with context ID:", currentContextId);
+        
+        // Set up new players with the selected settings
+        for (const instrumentId of Object.keys(instrumentsRef.current) as InstrumentType[]) {
+          // Update instrument loading state
+          instrumentsRef.current[instrumentId].loadingState = 'loading';
+          setInstruments(prev => prev.map(i => 
+            i.id === instrumentId ? { ...i, loadingState: 'loading' } : i
+          ));
+          
+          // Setup each instrument
+          await setupInstrument(
+            instrumentId, 
+            instrumentsRef.current[instrumentId], 
+            masterVolume, 
+            setInstruments,
+            setError,
+            currentContextId
+          );
+        }
+        
+        setIsTrackGenerated(true);
+        
+        // Always start meter monitoring, even if there are some errors
+        startMeterMonitoring(instrumentsRef, setInstruments);
+        
+        setIsLoading(false);
+        console.log("Track generated with settings:", settings);
+      } catch (err) {
+        console.error("Failed to generate track:", err);
+        setError("Failed to generate track. Please try again.");
+        setIsLoading(false);
+        
+        // Still start meter monitoring even with error
+        startMeterMonitoring(instrumentsRef, setInstruments);
+      }
+    }, [isStarted, masterVolume, startContext, setTrackSettings, setupInstrument, startMeterMonitoring, setIsTrackGenerated, getContextId]),
+    togglePlayback: useCallback(async () => {
+      if (!isStarted) {
+        await startContext();
+      }
+      
+      if (isPlaying) {
+        // Stop all instruments
+        Object.values(instrumentsRef.current).forEach(instrument => {
+          if (instrument.player) {
+            try {
+              instrument.player.stop();
+            } catch (err) {
+              console.error(`Error stopping ${instrument.id}:`, err);
+            }
+          }
+        });
+        setIsPlaying(false);
+      } else {
+        // Start all instruments
+        let playedSuccessfully = false;
+        
+        for (const instrument of Object.values(instrumentsRef.current)) {
+          if (instrument.player && instrument.loadingState === 'loaded') {
+            try {
+              instrument.player.start();
+              playedSuccessfully = true;
+            } catch (err) {
+              console.error(`Error starting ${instrument.id}:`, err);
+            }
+          }
+        }
+        
+        setIsPlaying(playedSuccessfully);
+        
+        if (!playedSuccessfully) {
+          setError("Could not play any instruments. Try regenerating the track.");
+        }
+      }
+    }, [isPlaying, isStarted, startContext]),
     setInstrumentVolume,
     setTrackSettings,
     downloadTrack: handleDownloadTrack,

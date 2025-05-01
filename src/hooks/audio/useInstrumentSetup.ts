@@ -18,40 +18,34 @@ export function useInstrumentSetup() {
     
     const instrument = instrumentsRef.current[instrumentId];
     
-    if (instrument && instrument.volumeNode) {
-      // Directly set the volume value
-      instrument.volumeNode.volume.value = volumeDb;
-      
-      // Update ref
-      instrumentsRef.current[instrumentId].volume = volumeDb;
-      
-      // Update state to trigger UI update
-      setInstruments(prev => prev.map(inst => 
-        inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
-      ));
-      
-      // Save the volume state to session storage
-      const stateKey = `trackAlchemy_${instrumentId}_volume`;
-      sessionStorage.setItem(stateKey, volumeDb.toString());
-    } else {
-      console.warn(`Volume node for ${instrumentId} not initialized`);
-      
-      // Still update the stored volume value even if node isn't ready
-      if (instrument) {
-        instrumentsRef.current[instrumentId] = {
-          ...instrument,
-          volume: volumeDb
-        };
-      
-        // Update state
-        setInstruments(prev => prev.map(inst => 
-          inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
-        ));
-        
-        // Save the volume state to session storage
-        const stateKey = `trackAlchemy_${instrumentId}_volume`;
-        sessionStorage.setItem(stateKey, volumeDb.toString());
+    if (!instrument) {
+      console.warn(`Instrument ${instrumentId} not found`);
+      return;
+    }
+    
+    // Always update the reference and state regardless of volumeNode availability
+    // This ensures the value persists even if the node isn't ready yet
+    instrumentsRef.current[instrumentId].volume = volumeDb;
+    
+    // Update state to trigger UI update
+    setInstruments(prev => prev.map(inst => 
+      inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
+    ));
+    
+    // Save the volume state to session storage immediately
+    const stateKey = `trackAlchemy_${instrumentId}_volume`;
+    sessionStorage.setItem(stateKey, volumeDb.toString());
+    
+    // If the volume node exists, update it
+    if (instrument.volumeNode) {
+      try {
+        // Directly set the volume value
+        instrument.volumeNode.volume.value = volumeDb;
+      } catch (err) {
+        console.warn(`Error setting volume for ${instrumentId}:`, err);
       }
+    } else {
+      console.log(`Volume node for ${instrumentId} not available yet, value saved for later application`);
     }
   }, []);
 
@@ -90,6 +84,16 @@ export function useInstrumentSetup() {
     ));
     
     try {
+      // Restore volume from session storage before creating nodes
+      const savedVolumeKey = `trackAlchemy_${instrumentId}_volume`;
+      const savedVolume = sessionStorage.getItem(savedVolumeKey);
+      if (savedVolume !== null) {
+        const volumeValue = parseFloat(savedVolume);
+        if (!isNaN(volumeValue)) {
+          instrument.volume = volumeValue;
+        }
+      }
+      
       // Create audio chain: Player -> Volume -> Analyser -> Master Volume
       const volumeNode = new Tone.Volume(instrument.volume);
       const analyser = new Tone.Analyser('waveform', 128);
@@ -120,7 +124,8 @@ export function useInstrumentSetup() {
               volumeNode, 
               analyser, 
               loadingState: 'loaded',
-              samplePath: url
+              samplePath: url,
+              volume: instrument.volume // Ensure volume is preserved
             } : i
           ));
         },
@@ -158,7 +163,8 @@ export function useInstrumentSetup() {
               player: fallbackOsc as unknown as Tone.Player, 
               loadingState: 'error',
               volumeNode, 
-              analyser 
+              analyser,
+              volume: instrument.volume // Ensure volume is preserved 
             } : i
           ));
         },
@@ -172,17 +178,6 @@ export function useInstrumentSetup() {
         volumeNode.connect(masterVolume);
       } else {
         volumeNode.connect(Tone.getDestination());
-      }
-      
-      // Restore volume from session storage if available
-      const savedVolumeKey = `trackAlchemy_${instrumentId}_volume`;
-      const savedVolume = sessionStorage.getItem(savedVolumeKey);
-      if (savedVolume !== null) {
-        const volumeValue = parseFloat(savedVolume);
-        if (!isNaN(volumeValue)) {
-          volumeNode.volume.value = volumeValue;
-          instrument.volume = volumeValue;
-        }
       }
       
       return { player, volumeNode, analyser };

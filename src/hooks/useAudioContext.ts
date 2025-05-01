@@ -37,6 +37,15 @@ export function useAudioContext() {
       const masterVolume = new Tone.Volume(-12).toDestination();
       masterVolumeRef.current = masterVolume;
       
+      // Restore master volume from session storage
+      const savedMasterVolume = sessionStorage.getItem('trackAlchemy_master_volume');
+      if (savedMasterVolume) {
+        const volumeValue = parseFloat(savedMasterVolume);
+        if (!isNaN(volumeValue)) {
+          masterVolume.volume.value = volumeValue;
+        }
+      }
+      
       setState({
         context: toneContext,
         isStarted: false,
@@ -80,28 +89,17 @@ export function useAudioContext() {
   // Set master volume in dB (-60 to 0)
   const setMasterVolume = useCallback((volume: number) => {
     if (masterVolumeRef.current) {
+      console.log(`Setting master volume to ${volume}dB`);
       masterVolumeRef.current.volume.value = volume;
       
       // Save to session storage
       sessionStorage.setItem('trackAlchemy_master_volume', volume.toString());
-    }
-  }, []);
-  
-  // Restore master volume from session storage
-  useEffect(() => {
-    if (masterVolumeRef.current) {
-      const savedVolume = sessionStorage.getItem('trackAlchemy_master_volume');
-      if (savedVolume) {
-        const volumeValue = parseFloat(savedVolume);
-        if (!isNaN(volumeValue)) {
-          masterVolumeRef.current.volume.value = volumeValue;
-          // Update state to reflect the restored volume
-          setState(prev => ({
-            ...prev,
-            masterVolume: masterVolumeRef.current
-          }));
-        }
-      }
+      
+      // Update state to reflect the new volume
+      setState(prev => ({
+        ...prev,
+        masterVolume: masterVolumeRef.current
+      }));
     }
   }, []);
   

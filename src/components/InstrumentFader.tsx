@@ -11,16 +11,17 @@ const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange
   // Keep a local state for UI updates
   const [localValue, setLocalValue] = useState<number>(value);
   
-  // Reference to track previous value
-  const prevValueRef = useRef<number>(value);
+  // Reference to track if this is an internal update
+  const isInternalUpdateRef = useRef<boolean>(false);
   
   // Update local state when prop value changes from parent
   useEffect(() => {
-    if (value !== prevValueRef.current) {
+    if (!isInternalUpdateRef.current && localValue !== value) {
+      console.log(`${name} fader updating from props: ${value}dB`);
       setLocalValue(value);
-      prevValueRef.current = value;
     }
-  }, [value]);
+    isInternalUpdateRef.current = false;
+  }, [value, name, localValue]);
   
   // Convert dB value to percentage for display (dB range from -60 to 0)
   const normalizedValue = ((localValue + 60) / 60) * 100;
@@ -28,8 +29,15 @@ const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange
   // Convert back from percentage to dB when slider changes
   const handleChange = (newValue: number[]) => {
     const dbValue = (newValue[0] / 100) * 60 - 60;
+    
+    // Set flag to prevent feedback loop
+    isInternalUpdateRef.current = true;
+    
+    // Update local state immediately for responsive UI
     setLocalValue(dbValue);
-    prevValueRef.current = dbValue;
+    
+    // Propagate to parent component
+    console.log(`${name} fader changed: ${dbValue.toFixed(1)}dB`);
     onChange(dbValue);
   };
   
