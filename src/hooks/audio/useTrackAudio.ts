@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { InstrumentType, InstrumentTrack, TrackSettings, UseTrackAudioProps } from './types';
@@ -8,7 +7,7 @@ import { useTrackSamples } from './useTrackSamples';
 import { useTrackState } from './useTrackState';
 import { useInstrumentSetup } from './useInstrumentSetup';
 
-export { InstrumentType, TrackSettings, InstrumentTrack } from './types';
+export type { InstrumentType, TrackSettings, InstrumentTrack } from './types';
 
 export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrackAudioProps) {
   const [isPlaying, setIsPlaying] = useState(false);
