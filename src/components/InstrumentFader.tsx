@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Slider } from "@/components/ui/slider";
 
 interface InstrumentFaderProps {
@@ -9,6 +9,14 @@ interface InstrumentFaderProps {
 }
 
 const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange }) => {
+  // Reference to track previous value 
+  const prevValueRef = useRef<number>(value);
+  
+  // Update reference when value changes from parent
+  useEffect(() => {
+    prevValueRef.current = value;
+  }, [value]);
+  
   // Convert dB value to percentage for display (dB range from -60 to 0)
   const normalizedValue = ((value + 60) / 60) * 100;
   

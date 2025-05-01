@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Pause, ChevronDown } from "lucide-react";
+import { Play, Pause, ChevronDown, Download } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useTrackAudio, type TrackSettings } from "@/hooks/useTrackAudio";
 import TestTone from "@/components/TestTone";
@@ -70,6 +71,31 @@ const Index = () => {
     }
   };
   
+  // Handle download track
+  const handleDownloadTrack = async () => {
+    try {
+      const result = await trackAudio.downloadTrack();
+      if (result.success) {
+        toast({
+          title: "Track Downloaded",
+          description: "Your track has been successfully downloaded.",
+        });
+      } else {
+        toast({
+          title: "Download Failed",
+          description: result.error || "Could not download track",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "An error occurred while downloading the track.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   // Effects to handle errors
   useEffect(() => {
     if (audioContext.error) {
@@ -115,7 +141,7 @@ const Index = () => {
             
             <div className="flex flex-col space-y-4">
               <SampleManager />
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-2">
                 <Button 
                   onClick={handleGenerate}
                   disabled={trackAudio.isLoading}
@@ -124,23 +150,34 @@ const Index = () => {
                   Generate Track
                 </Button>
                 
-                <Button 
-                  onClick={trackAudio.togglePlayback}
-                  disabled={trackAudio.isLoading}
-                  className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
-                >
-                  {trackAudio.isPlaying ? (
-                    <>
-                      <Pause className="w-4 h-4" />
-                      <span>Pause</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4" />
-                      <span>Play</span>
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={trackAudio.togglePlayback}
+                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
+                    className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                  >
+                    {trackAudio.isPlaying ? (
+                      <>
+                        <Pause className="w-4 h-4" />
+                        <span>Pause</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        <span>Play</span>
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button
+                    onClick={handleDownloadTrack}
+                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
+                    className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download</span>
+                  </Button>
+                </div>
               </div>
               
               <TestTone playTestTone={audioContext.playTestTone} />

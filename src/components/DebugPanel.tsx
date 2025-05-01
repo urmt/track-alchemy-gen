@@ -21,6 +21,10 @@ const DebugPanel: React.FC<DebugPanelProps> = ({
   error,
   instruments = []
 }) => {
+  // Count loaded samples
+  const loadedSamples = instruments.filter(inst => inst.loadingState === 'loaded').length;
+  const totalSamples = instruments.length;
+  
   return (
     <div className="p-4 bg-studio-panel rounded-lg font-mono">
       <h3 className="text-lg font-semibold mb-2">Debug Panel</h3>
@@ -30,6 +34,9 @@ const DebugPanel: React.FC<DebugPanelProps> = ({
             <div><span className="text-studio-accent">AudioContext:</span> {audioContextState.isLoaded ? "Loaded" : "Not Loaded"}</div>
             <div><span className="text-studio-accent">Context Started:</span> {audioContextState.isStarted ? "Yes" : "No"}</div>
             <div><span className="text-studio-accent">Loading Samples:</span> {isLoading ? "Yes" : "No"}</div>
+            <div>
+              <span className="text-studio-accent">Sample Status:</span> {loadedSamples}/{totalSamples} loaded
+            </div>
             <div><span className="text-studio-accent">Playback:</span> {isPlaying ? "Playing" : "Stopped"}</div>
             <div><span className="text-studio-accent">BPM:</span> {trackSettings.bpm}</div>
             <div><span className="text-studio-accent">Key:</span> {trackSettings.key}</div>
@@ -38,7 +45,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({
           </div>
           
           <div className="space-y-1">
-            <div className="mb-1"><span className="text-studio-accent">Sample Status:</span></div>
+            <div className="mb-1"><span className="text-studio-accent">Instrument Details:</span></div>
             {instruments.map(inst => (
               <div key={inst.id} className="flex items-center gap-1.5">
                 <span className="text-studio-accent">{inst.name}:</span>

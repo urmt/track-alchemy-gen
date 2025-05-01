@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { useSampleManager } from './useSampleManager';
@@ -30,11 +31,17 @@ interface UseTrackAudioProps {
   startContext: () => Promise<void>;
 }
 
+// Key for storing track state in session storage
+const TRACK_STATE_KEY = 'trackAlchemyState';
+
 export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrackAudioProps) {
   const { getSamples, getSampleUrl } = useSampleManager();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTrackGenerated, setIsTrackGenerated] = useState(false);
+  
+  // Track settings with default values
   const [trackSettings, setTrackSettings] = useState<TrackSettings>({
     genre: 'rock',
     mood: 'energetic',
@@ -115,6 +122,80 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
     };
   }, [masterVolume]);
   
+  // Load track state from session storage on initial load
+  useEffect(() => {
+    const loadSavedState = async () => {
+      try {
+        const savedState = sessionStorage.getItem(TRACK_STATE_KEY);
+        if (savedState) {
+          const parsedState = JSON.parse(savedState);
+          
+          // Restore track settings
+          setTrackSettings(parsedState.trackSettings);
+          
+          // Set flag that track was generated before
+          if (parsedState.isTrackGenerated) {
+            setIsTrackGenerated(true);
+          }
+          
+          // Load instrument settings
+          Object.entries(parsedState.instruments).forEach(([id, data]: [string, any]) => {
+            if (instrumentsRef.current[id as InstrumentType]) {
+              instrumentsRef.current[id as InstrumentType].volume = data.volume;
+              instrumentsRef.current[id as InstrumentType].samplePath = data.samplePath;
+              instrumentsRef.current[id as InstrumentType].loadingState = 'idle'; // Will be reloaded
+              
+              // Update the instruments state with volume changes
+              setInstruments(prev => prev.map(inst => 
+                inst.id === id ? { 
+                  ...inst, 
+                  volume: data.volume, 
+                  samplePath: data.samplePath, 
+                  loadingState: 'idle'
+                } : inst
+              ));
+            }
+          });
+          
+          console.log("Restored track state from session storage");
+          
+          // If there was a track generated before, automatically reload samples
+          if (parsedState.isTrackGenerated && isStarted) {
+            console.log("Automatically reloading saved track");
+            await regenerateTrackFromSavedState();
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load saved track state:", err);
+      }
+    };
+    
+    if (isStarted) {
+      loadSavedState();
+    }
+  }, [isStarted]); 
+  
+  // Save track state to session storage whenever critical state changes
+  useEffect(() => {
+    if (isTrackGenerated) {
+      const stateToSave = {
+        trackSettings,
+        isTrackGenerated,
+        instruments: Object.fromEntries(
+          Object.values(instrumentsRef.current).map(inst => [
+            inst.id, 
+            {
+              volume: inst.volume,
+              samplePath: inst.samplePath,
+            }
+          ])
+        )
+      };
+      
+      sessionStorage.setItem(TRACK_STATE_KEY, JSON.stringify(stateToSave));
+    }
+  }, [trackSettings, isTrackGenerated, instruments]);
+  
   // Get sample URL for an instrument type, preferring user uploads
   const getSampleUrlForInstrument = useCallback(async (instrumentType: InstrumentType): Promise<string | null> => {
     try {
@@ -146,6 +227,148 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       return null;
     }
   }, [getSamples, getSampleUrl]);
+  
+  // Function to reload track from saved state
+  const regenerateTrackFromSavedState = useCallback(async () => {
+    if (!isStarted) {
+      await startContext();
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      Tone.Transport.bpm.value = trackSettings.bpm;
+      
+      // Clean up any existing players
+      Object.values(instrumentsRef.current).forEach(instrument => {
+        if (instrument.player) {
+          instrument.player.stop();
+          instrument.player.dispose();
+        }
+        if (instrument.volumeNode) {
+          instrument.volumeNode.dispose();
+        }
+        if (instrument.analyser) {
+          instrument.analyser.dispose();
+        }
+        
+        // Reset loading state to loading
+        instrument.loadingState = 'loading';
+      });
+      
+      // Update instruments state to show loading state
+      setInstruments(prev => prev.map(i => ({ ...i, loadingState: 'loading' })));
+      
+      // Set up players with saved sample paths
+      for (const instrumentId of Object.keys(instrumentsRef.current) as InstrumentType[]) {
+        const instrument = instrumentsRef.current[instrumentId];
+        
+        // If we have a saved sample path, use it, otherwise try to get a new one
+        let url = instrument.samplePath;
+        if (!url) {
+          url = await getSampleUrlForInstrument(instrumentId);
+          instrument.samplePath = url;
+        }
+        
+        if (!url) {
+          console.error(`Could not find a sample for ${instrumentId}`);
+          setError(prev => prev || `No sample found for ${instrumentId}. Using fallback.`);
+          
+          // Update instrument state to show error
+          instrument.loadingState = 'error';
+          setInstruments(prev => prev.map(i => 
+            i.id === instrumentId ? { ...i, loadingState: 'error', samplePath: null } : i
+          ));
+          
+          // Continue to next instrument
+          continue;
+        }
+        
+        // Create audio chain: Player -> Volume -> Analyser -> Master Volume
+        const volumeNode = new Tone.Volume(instrument.volume);
+        const analyser = new Tone.Analyser('waveform', 128);
+        
+        // Set up buffer error handling
+        const player = new Tone.Player({
+          url,
+          loop: true,
+          onload: () => {
+            console.log(`${instrumentId} loaded successfully from ${url}`);
+            // Update state to show this instrument is ready
+            instrument.loadingState = 'loaded';
+            instrument.player = player;
+            instrument.volumeNode = volumeNode;
+            instrument.analyser = analyser;
+            
+            setInstruments(prev => prev.map(i => 
+              i.id === instrumentId ? { 
+                ...i, 
+                player, 
+                volumeNode, 
+                analyser, 
+                loadingState: 'loaded',
+                samplePath: url
+              } : i
+            ));
+          },
+          onerror: (e) => {
+            console.error(`Error loading ${instrumentId} from ${url}:`, e);
+            
+            // Update instrument state to show error
+            instrument.loadingState = 'error';
+            setInstruments(prev => prev.map(i => 
+              i.id === instrumentId ? { ...i, loadingState: 'error' } : i
+            ));
+            
+            // Use fallback to a simple oscillator if sample fails to load
+            setError(prev => prev || `Failed to load ${instrumentId} sample. Using fallback.`);
+            
+            // Fallback to a sine wave at appropriate pitch
+            const fallbackFreq = instrumentId === 'bass' ? 55 : 
+                              instrumentId === 'guitar' ? 196 :
+                              instrumentId === 'keys' ? 261 : 200;
+            
+            const fallbackOsc = new Tone.Oscillator({
+              frequency: fallbackFreq,
+              type: instrumentId === 'drums' ? 'square' : 'sine',
+            }).connect(volumeNode);
+            
+            // Replace the player with oscillator in the instrument object
+            instrument.player = fallbackOsc as unknown as Tone.Player;
+            instrument.volumeNode = volumeNode;
+            instrument.analyser = analyser;
+            instrument.loadingState = 'error';
+            
+            setInstruments(prev => prev.map(i => 
+              i.id === instrumentId ? { 
+                ...i, 
+                player: fallbackOsc as unknown as Tone.Player, 
+                loadingState: 'error',
+                volumeNode, 
+                analyser 
+              } : i
+            ));
+          },
+        }).connect(volumeNode);
+        
+        volumeNode.connect(analyser);
+        volumeNode.connect(masterVolume || Tone.getDestination());
+      }
+      
+      setIsTrackGenerated(true);
+      setIsLoading(false);
+      
+      // Start meter monitoring
+      startMeterMonitoring();
+      
+      console.log("Track regenerated with saved settings:", trackSettings);
+    } catch (err) {
+      console.error("Failed to regenerate track:", err);
+      setError("Failed to regenerate track. Please try again.");
+      setIsLoading(false);
+    }
+  }, [isStarted, masterVolume, startContext, getSampleUrlForInstrument, trackSettings]);
 
   const generateTrack = useCallback(async (settings: TrackSettings) => {
     if (!isStarted) {
@@ -157,6 +380,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
     
     try {
       Tone.Transport.bpm.value = settings.bpm;
+      
+      // Update track settings
+      setTrackSettings(settings);
       
       // Clean up any existing players
       Object.values(instrumentsRef.current).forEach(instrument => {
@@ -266,7 +492,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
         volumeNode.connect(masterVolume || Tone.getDestination());
       }
       
-      setTrackSettings(settings);
+      setIsTrackGenerated(true);
       setIsLoading(false);
       
       // Start meter monitoring
@@ -381,6 +607,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       // Directly set the volume value
       instrumentsRef.current[instrumentId].volumeNode!.volume.value = volumeDb;
       
+      // Update ref
+      instrumentsRef.current[instrumentId].volume = volumeDb;
+      
       // Update state
       setInstruments(prev => prev.map(inst => 
         inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
@@ -400,6 +629,151 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       ));
     }
   }, []);
+  
+  // Function to download the current track
+  const downloadTrack = useCallback(async () => {
+    try {
+      if (!isTrackGenerated) {
+        return { success: false, error: "No track has been generated yet" };
+      }
+      
+      // Create an offline context to render the track
+      console.log("Starting track rendering process...");
+      
+      const duration = 16; // 16 bars
+      const beatsPerBar = 4;
+      const bpm = trackSettings.bpm;
+      const trackDuration = (duration * beatsPerBar * 60) / bpm;
+      
+      // Create an offline context
+      const offlineContext = new Tone.OfflineContext(2, trackDuration, 44100);
+      Tone.setContext(offlineContext);
+      
+      // Create a master volume node
+      const offlineMaster = new Tone.Volume(-6).toDestination();
+      
+      // Re-create all instruments in the offline context
+      const offlineInstruments: Record<string, any> = {};
+      
+      // Add each instrument to the offline context
+      for (const instrument of Object.values(instrumentsRef.current)) {
+        if (!instrument.samplePath) continue;
+        
+        const volumeNode = new Tone.Volume(instrument.volume);
+        
+        // Create a player for each instrument
+        const player = new Tone.Player({
+          url: instrument.samplePath,
+          loop: true,
+        }).connect(volumeNode);
+        
+        // Connect to the master volume
+        volumeNode.connect(offlineMaster);
+        
+        offlineInstruments[instrument.id] = {
+          player,
+          volumeNode
+        };
+      }
+      
+      // Start all players
+      for (const inst of Object.values(offlineInstruments)) {
+        if (inst.player) {
+          inst.player.start();
+        }
+      }
+      
+      // Render the full track
+      console.log(`Rendering ${trackDuration} seconds of audio...`);
+      const buffer = await offlineContext.render();
+      console.log("Rendering complete.");
+      
+      // Convert the buffer to a WAV file
+      const wav = toWav(buffer);
+      
+      // Create a download link
+      const blob = new Blob([wav], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      
+      // Create a filename based on track settings
+      const filename = `track-${trackSettings.genre}-${trackSettings.key}-${trackSettings.bpm}bpm.wav`;
+      
+      // Create and click a download link
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Clean up the URL
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log("Track downloaded successfully");
+      return { success: true };
+    } catch (err) {
+      console.error("Error downloading track:", err);
+      return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+    } finally {
+      // Restore the main context
+      Tone.setContext(Tone.getContext());
+    }
+  }, [isTrackGenerated, trackSettings]);
+  
+  // Helper function to convert AudioBuffer to WAV format
+  const toWav = (audioBuffer: Tone.ToneAudioBuffer | AudioBuffer) => {
+    // Get the actual AudioBuffer
+    const buffer = 'get' in audioBuffer ? audioBuffer.get() : audioBuffer;
+    
+    const numOfChannels = buffer.numberOfChannels;
+    const length = buffer.length * numOfChannels * 2; // 2 bytes per sample
+    const sampleRate = buffer.sampleRate;
+    
+    // Create the WAV file buffer
+    const buffer1 = new ArrayBuffer(44 + length);
+    const data = new DataView(buffer1);
+    
+    // WAV header
+    // "RIFF" chunk descriptor
+    writeString(data, 0, 'RIFF');
+    data.setUint32(4, 36 + length, true);
+    writeString(data, 8, 'WAVE');
+    
+    // "fmt " sub-chunk
+    writeString(data, 12, 'fmt ');
+    data.setUint32(16, 16, true); // subchunk size
+    data.setUint16(20, 1, true); // PCM format
+    data.setUint16(22, numOfChannels, true); // channels
+    data.setUint32(24, sampleRate, true); // sample rate
+    data.setUint32(28, sampleRate * numOfChannels * 2, true); // byte rate
+    data.setUint16(32, numOfChannels * 2, true); // block align
+    data.setUint16(34, 16, true); // bits per sample
+    
+    // "data" sub-chunk
+    writeString(data, 36, 'data');
+    data.setUint32(40, length, true);
+    
+    // Write the PCM samples
+    let offset = 44;
+    for (let i = 0; i < buffer.length; i++) {
+      for (let channel = 0; channel < numOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+        data.setInt16(offset, sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    
+    return new Uint8Array(buffer1);
+  };
+  
+  // Helper function to write a string to a DataView
+  const writeString = (dataview: DataView, offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      dataview.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
 
   return {
     instruments,
@@ -407,10 +781,12 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
     isLoading,
     error,
     trackSettings,
+    isTrackGenerated,
     masterMeterValue,
     generateTrack,
     togglePlayback,
     setInstrumentVolume,
     setTrackSettings,
+    downloadTrack,
   };
 }
