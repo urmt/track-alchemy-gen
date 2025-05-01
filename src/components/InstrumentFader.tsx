@@ -28,7 +28,7 @@ const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange
   
   // Format dB value for display
   const formatDb = (db: number): string => {
-    if (db <= -60) return "-∞";
+    if (db <= -59.8) return "-∞";
     return `${db.toFixed(1)} dB`;
   };
 

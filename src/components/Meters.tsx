@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface MeterProps {
   value: number; // 0-100 range
@@ -12,6 +11,14 @@ interface MeterSegment {
 }
 
 const Meter: React.FC<MeterProps> = ({ value, label }) => {
+  // Keep track of previous value for smoother animation
+  const prevValueRef = useRef<number>(value);
+  
+  // Update ref when value changes
+  useEffect(() => {
+    prevValueRef.current = value;
+  }, [value]);
+  
   // Define segments for green, yellow, red meter sections
   const segments: MeterSegment[] = [
     // Green segments (0-70%)
@@ -33,13 +40,16 @@ const Meter: React.FC<MeterProps> = ({ value, label }) => {
   
   return (
     <div className="flex flex-col items-center">
-      <div className="level-meter flex flex-col-reverse">
+      <div className="level-meter flex flex-col-reverse gap-[2px]">
         {segments.map((segment, index) => (
           <div 
             key={index}
             className={`meter-segment ${segment.color} ${index < activeLevels ? 'opacity-100' : 'opacity-20'}`}
             style={{ 
               height: `${segment.height}px`, 
+              width: '8px',
+              borderRadius: '1px',
+              transition: 'transform 0.05s ease, opacity 0.05s ease',
               transform: index < activeLevels ? 'scaleY(1)' : 'scaleY(0.5)'
             }}
           />

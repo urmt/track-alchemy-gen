@@ -29,14 +29,17 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>
   ) => {
+    // Clear any existing interval to prevent duplicates
     if (meterIntervalRef.current) {
       clearInterval(meterIntervalRef.current);
+      meterIntervalRef.current = null;
     }
     
+    // Set up a new interval for meter updates
     meterIntervalRef.current = window.setInterval(() => {
       // Update each instrument meter
       Object.values(instrumentsRef.current).forEach(instrument => {
-        if (instrument.analyser && instrument.player?.state === 'started') {
+        if (instrument.analyser) {
           const waveform = instrument.analyser.getValue();
           // Calculate RMS volume
           const rms = Math.sqrt(
@@ -47,12 +50,16 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
           // Convert to a better visual range (0-100)
           const meterValue = Math.min(100, Math.max(0, rms * 200));
           
-          // Update state
+          // Update instrument meter value in our ref object
+          instrumentsRef.current[instrument.id].meterValue = meterValue;
+          
+          // Update state to trigger UI update
           setInstruments(prev => prev.map(i => 
             i.id === instrument.id ? { ...i, meterValue } : i
           ));
         } else if (!isPlaying) {
           // Reset meter when not playing
+          instrumentsRef.current[instrument.id].meterValue = 0;
           setInstruments(prev => prev.map(i => 
             i.id === instrument.id ? { ...i, meterValue: 0 } : i
           ));
@@ -68,9 +75,12 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         );
         const masterMeterVal = Math.min(100, Math.max(0, masterRms * 200));
         setMasterMeterValue(masterMeterVal);
+      } else {
+        setMasterMeterValue(0);
       }
     }, 50); // Update every 50ms for smooth meter movement
     
+    // Return cleanup function
     return () => {
       if (meterIntervalRef.current) {
         clearInterval(meterIntervalRef.current);
@@ -84,10 +94,12 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     return () => {
       if (meterIntervalRef.current) {
         clearInterval(meterIntervalRef.current);
+        meterIntervalRef.current = null;
       }
       
       if (masterAnalyserRef.current) {
         masterAnalyserRef.current.dispose();
+        masterAnalyserRef.current = null;
       }
     };
   }, []);

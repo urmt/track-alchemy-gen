@@ -73,6 +73,27 @@ export function useAudioContext() {
   const setMasterVolume = useCallback((volume: number) => {
     if (masterVolumeRef.current) {
       masterVolumeRef.current.volume.value = volume;
+      
+      // Save to session storage
+      sessionStorage.setItem('trackAlchemy_master_volume', volume.toString());
+    }
+  }, []);
+  
+  // Restore master volume from session storage
+  useEffect(() => {
+    if (masterVolumeRef.current) {
+      const savedVolume = sessionStorage.getItem('trackAlchemy_master_volume');
+      if (savedVolume) {
+        const volumeValue = parseFloat(savedVolume);
+        if (!isNaN(volumeValue)) {
+          masterVolumeRef.current.volume.value = volumeValue;
+          // Update state to reflect the restored volume
+          setState(prev => ({
+            ...prev,
+            masterVolume: masterVolumeRef.current
+          }));
+        }
+      }
     }
   }, []);
   

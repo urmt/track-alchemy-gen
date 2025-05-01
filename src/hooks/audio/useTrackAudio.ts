@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { InstrumentType, InstrumentTrack, TrackSettings, UseTrackAudioProps } from './types';
@@ -131,7 +132,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       setIsTrackGenerated(true);
       setIsLoading(false);
       
-      // Start meter monitoring
+      // Start meter monitoring to ensure meters update even when not playing
       startMeterMonitoring(instrumentsRef, setInstruments);
       
       console.log("Track regenerated with saved settings:", trackSettings);
@@ -148,6 +149,14 @@ export function useTrackAudio({ masterVolume, isStarted, startContext }: UseTrac
       loadSavedState(isStarted, regenerateTrackFromSavedState);
     }
   }, [isStarted, loadSavedState, regenerateTrackFromSavedState]); 
+
+  // Always start meter monitoring when track is generated, even when not playing
+  useEffect(() => {
+    if (isTrackGenerated) {
+      const cleanup = startMeterMonitoring(instrumentsRef, setInstruments);
+      return cleanup;
+    }
+  }, [isTrackGenerated, startMeterMonitoring]);
 
   const generateTrack = useCallback(async (settings: TrackSettings) => {
     if (!isStarted) {
