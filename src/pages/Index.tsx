@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "@/components/ui/sonner";
 import { Play, Pause, ChevronDown, Download } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useTrackAudio, type TrackSettings } from "@/hooks/audio/useTrackAudio";
@@ -26,6 +27,7 @@ const Index = () => {
     isStarted: audioContext.isStarted,
     startContext: audioContext.startContext,
     getContextId: audioContext.getContextId,
+    resetContext: audioContext.resetContext,
   });
   
   // State for track settings
@@ -40,10 +42,9 @@ const Index = () => {
   // Handle generate button click
   const handleGenerate = async () => {
     if (!audioContext.isLoaded) {
-      toast({
-        title: "Audio Context Error",
+      sonnerToast("Audio Context Error", {
         description: "Audio system could not be initialized. Please try reloading.",
-        variant: "destructive",
+        dismissible: true,
       });
       return;
     }
@@ -58,15 +59,15 @@ const Index = () => {
         trackSettings.mood
       );
       
-      toast({
-        title: "Track Generated",
+      sonnerToast("Track Generated", {
         description: `Created ${trackSettings.genre} track in ${trackSettings.key} with progression: ${progression.join(' - ')}`,
+        dismissible: true,
+        duration: 5000,
       });
     } catch (error) {
-      toast({
-        title: "Generation Failed",
+      sonnerToast("Generation Failed", {
         description: "Could not generate track. See debug panel for details.",
-        variant: "destructive",
+        dismissible: true,
       });
     }
   };
@@ -76,22 +77,20 @@ const Index = () => {
     try {
       const result = await trackAudio.downloadTrack();
       if (result.success) {
-        toast({
-          title: "Track Downloaded",
+        sonnerToast("Track Downloaded", {
           description: "Your track has been successfully downloaded.",
+          dismissible: true,
         });
       } else {
-        toast({
-          title: "Download Failed",
+        sonnerToast("Download Failed", {
           description: result.error || "Could not download track",
-          variant: "destructive",
+          dismissible: true,
         });
       }
     } catch (error) {
-      toast({
-        title: "Download Failed",
+      sonnerToast("Download Failed", {
         description: "An error occurred while downloading the track.",
-        variant: "destructive",
+        dismissible: true,
       });
     }
   };
@@ -99,23 +98,21 @@ const Index = () => {
   // Effects to handle errors
   useEffect(() => {
     if (audioContext.error) {
-      toast({
-        title: "Audio Error",
+      sonnerToast("Audio Error", {
         description: audioContext.error,
-        variant: "destructive",
+        dismissible: true,
       });
     }
-  }, [audioContext.error, toast]);
+  }, [audioContext.error]);
   
   useEffect(() => {
     if (trackAudio.error) {
-      toast({
-        title: "Track Error",
+      sonnerToast("Track Error", {
         description: trackAudio.error,
-        variant: "destructive",
+        dismissible: true,
       });
     }
-  }, [trackAudio.error, toast]);
+  }, [trackAudio.error]);
   
   return (
     <div className="min-h-screen bg-studio-bg text-white">
