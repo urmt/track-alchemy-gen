@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -29,66 +28,74 @@ export function useAudioContext() {
     if (initializingRef.current) return;
     initializingRef.current = true;
     
-    try {
-      console.log("Initializing audio context");
-      
-      // Clean up any existing nodes first
-      if (masterVolumeRef.current) {
-        masterVolumeRef.current.dispose();
-      }
-      
-      // Use a try/catch when getting the Tone context
-      let toneContext;
+    const initContext = async () => {
       try {
-        // Tone.js automatically creates its context
-        toneContext = Tone.getContext();
-      } catch (err) {
-        console.error("Failed to get Tone context:", err);
-        // Create a new context if getting fails
-        Tone.start();
-        toneContext = Tone.getContext();
-      }
-      
-      // Store unique context identifier
-      contextIdRef.current = toneContext.toString(); 
-      
-      const masterVolume = new Tone.Volume(-12).toDestination();
-      masterVolumeRef.current = masterVolume;
-      
-      // Restore master volume from session storage
-      const savedMasterVolume = sessionStorage.getItem('trackAlchemy_master_volume');
-      if (savedMasterVolume) {
-        const volumeValue = parseFloat(savedMasterVolume);
-        if (!isNaN(volumeValue)) {
-          masterVolume.volume.value = volumeValue;
-          console.log(`Restored master volume: ${volumeValue}dB`);
+        console.log("Initializing audio context");
+        
+        // Clean up any existing nodes first
+        if (masterVolumeRef.current) {
+          masterVolumeRef.current.dispose();
+          masterVolumeRef.current = null;
         }
+        
+        // Completely dispose any existing Tone.js context
+        try {
+          const existingContext = Tone.getContext();
+          if (existingContext) {
+            existingContext.dispose();
+            console.log("Disposed existing Tone.js context");
+          }
+        } catch (err) {
+          console.warn("No existing context to dispose:", err);
+        }
+        
+        // Create a fresh context
+        await Tone.start();
+        await Tone.loaded();
+        
+        const toneContext = Tone.getContext();
+        console.log("New Tone context created:", toneContext);
+        
+        // Store unique context identifier
+        contextIdRef.current = toneContext.toString();
+        
+        // Create master volume node
+        const masterVolume = new Tone.Volume(-12).toDestination();
+        masterVolumeRef.current = masterVolume;
+        
+        // Restore master volume from session storage
+        const savedMasterVolume = sessionStorage.getItem('trackAlchemy_master_volume');
+        if (savedMasterVolume) {
+          const volumeValue = parseFloat(savedMasterVolume);
+          if (!isNaN(volumeValue)) {
+            masterVolume.volume.value = volumeValue;
+            console.log(`Restored master volume: ${volumeValue}dB`);
+          }
+        }
+        
+        setState({
+          context: toneContext,
+          isStarted: true, // Mark as started since we called Tone.start() already
+          isLoaded: true,
+          error: null,
+          masterVolume,
+        });
+        
+        console.log("Audio context initialized with ID:", contextIdRef.current);
+      } catch (err) {
+        console.error("Failed to initialize audio context:", err);
+        setState(prev => ({ 
+          ...prev, 
+          error: "Failed to initialize audio context. Please refresh the page.",
+          isLoaded: false
+        }));
+      } finally {
+        initializingRef.current = false;
       }
-      
-      setState({
-        context: toneContext,
-        isStarted: false,
-        isLoaded: true,
-        error: null,
-        masterVolume,
-      });
-      
-      console.log("Audio context initialized with ID:", contextIdRef.current);
-      
-      // Auto-start context on Safari and iOS
-      if (/iPhone|iPad|iPod|Safari/i.test(navigator.userAgent) && !(/Chrome/i.test(navigator.userAgent))) {
-        console.log("Attempting auto-start for Safari/iOS");
-        Tone.start().catch(err => console.warn("Auto-start failed:", err));
-      }
-    } catch (err) {
-      console.error("Failed to initialize audio context:", err);
-      setState(prev => ({ 
-        ...prev, 
-        error: "Failed to initialize audio context" 
-      }));
-    } finally {
-      initializingRef.current = false;
-    }
+    };
+    
+    // Start initialization
+    initContext();
     
     return () => {
       // Clean up
@@ -128,14 +135,16 @@ export function useAudioContext() {
       
       // Force a context reset on error
       try {
-        // Instead of calling close() directly, we'll dispose the context
         if (state.context) {
           state.context.dispose();
         }
-        console.log("Closed failed audio context");
+        console.log("Disposed failed audio context");
       } catch (closeErr) {
-        console.warn("Error while closing context:", closeErr);
+        console.warn("Error while disposing context:", closeErr);
       }
+      
+      // Try to reset after error
+      resetContext().catch(e => console.error("Failed to reset context after start error:", e));
     }
   }, [state.isStarted, state.context]);
   
@@ -173,6 +182,9 @@ export function useAudioContext() {
         return;
       }
       
+      // Check if we have the current context
+      const currentContext = Tone.getContext();
+      
       const osc = new Tone.Oscillator({
         frequency: 440,
         type: "sine",
@@ -193,13 +205,24 @@ export function useAudioContext() {
         ...prev, 
         error: "Failed to play test tone. Please try again." 
       }));
+      
+      // Try reset on failure
+      resetContext().catch(e => console.error("Failed to reset after test tone error:", e));
     }
   }, [state.isStarted, startContext]);
   
-  // Reset context if needed
+  // Reset context - completely rebuild the audio context
   const resetContext = useCallback(async () => {
     try {
       console.log("Resetting audio context");
+      initializingRef.current = true;
+      
+      // Mark as loading
+      setState(prev => ({
+        ...prev,
+        isLoaded: false,
+        error: null
+      }));
       
       // Clean up existing context
       if (masterVolumeRef.current) {
@@ -209,12 +232,30 @@ export function useAudioContext() {
       
       // Close existing context
       if (state.context) {
-        // Replace close() with dispose()
-        state.context.dispose();
+        try {
+          state.context.dispose();
+          console.log("Disposed old context during reset");
+        } catch (err) {
+          console.warn("Error disposing old context:", err);
+        }
+      }
+      
+      // Clear Tone.js global references (if possible)
+      try {
+        // @ts-ignore - Using internal method to help reset
+        if (typeof Tone.Transport.dispose === 'function') {
+          // @ts-ignore
+          Tone.Transport.dispose();
+          console.log("Disposed Tone.Transport");
+        }
+      } catch (err) {
+        console.warn("Error cleaning up Tone Transport:", err);
       }
       
       // Create new context
       await Tone.start();
+      await Tone.loaded();
+      
       const newContext = Tone.getContext();
       const newMasterVolume = new Tone.Volume(-12).toDestination();
       masterVolumeRef.current = newMasterVolume;
@@ -229,14 +270,21 @@ export function useAudioContext() {
       });
       
       console.log("Audio context reset with new ID:", contextIdRef.current);
+      
+      // Clear session storage data that might reference old context
+      // We keep the volume settings but clear any saved track state
+      sessionStorage.removeItem('trackAlchemyState');
+      
       return true;
     } catch (err) {
       console.error("Failed to reset audio context:", err);
       setState(prev => ({ 
         ...prev, 
-        error: "Failed to reset audio context" 
+        error: "Failed to reset audio context. Please refresh the page."
       }));
       return false;
+    } finally {
+      initializingRef.current = false;
     }
   }, [state.context]);
 

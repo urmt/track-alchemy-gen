@@ -1,5 +1,6 @@
+
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -32,6 +33,8 @@ function WithErrorBoundary({ children }: { children: React.ReactNode }) {
   // Reset error state
   const resetError = () => {
     setError(null);
+    // Clear any cached state that could be causing issues
+    sessionStorage.removeItem('trackAlchemyState');
     window.location.reload();
   };
   
@@ -39,13 +42,43 @@ function WithErrorBoundary({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const errorHandler = (event: ErrorEvent) => {
       console.error("Caught in error boundary:", event.error);
+      // Special handling for audio context errors
+      if (event.error?.message?.includes('audio') || 
+          event.error?.message?.includes('context')) {
+        toast.error("Audio system error. Please refresh the page.", {
+          description: "This could be due to browser audio limitations.",
+          action: {
+            label: "Refresh",
+            onClick: () => window.location.reload()
+          },
+          duration: 10000
+        });
+      }
+      
       setError(event.error);
       event.preventDefault();
     };
     
     window.addEventListener('error', errorHandler);
-    return () => window.removeEventListener('error', errorHandler);
-  }, []);
+    
+    // Also listen for unhandled promise rejections
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
+      console.error("Unhandled rejection in error boundary:", event.reason);
+      
+      // Only set error if it's not already set to avoid loops
+      if (!error) {
+        setError(new Error(event.reason?.message || "Unhandled promise rejection"));
+      }
+      event.preventDefault();
+    };
+    
+    window.addEventListener('unhandledrejection', rejectionHandler);
+    
+    return () => {
+      window.removeEventListener('error', errorHandler);
+      window.removeEventListener('unhandledrejection', rejectionHandler);
+    };
+  }, [error]);
   
   if (error) {
     return <ErrorFallback error={error} resetError={resetError} />;

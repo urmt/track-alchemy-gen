@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "@/components/ui/sonner";
-import { Play, Pause, ChevronDown, Download } from "lucide-react";
+import { Play, Pause, ChevronDown, Download, RefreshCw } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useTrackAudio, type TrackSettings } from "@/hooks/audio/useTrackAudio";
 import TestTone from "@/components/TestTone";
@@ -39,12 +40,56 @@ const Index = () => {
     duration: 16,
   });
   
+  // Handle reset audio system
+  const handleResetAudioSystem = async () => {
+    sonnerToast("Resetting Audio System", {
+      description: "Please wait while the audio system resets...",
+    });
+    
+    // Stop any playing audio
+    if (trackAudio.isPlaying) {
+      await trackAudio.togglePlayback();
+    }
+    
+    try {
+      // Reset the audio context
+      await audioContext.resetContext();
+      
+      // Clear session storage
+      sessionStorage.removeItem('trackAlchemyState');
+      
+      sonnerToast("Audio System Reset", {
+        description: "Audio system has been reset. You can now generate a new track.",
+      });
+      
+      // Small delay to ensure context is fully reset
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Try to generate a new track with defaults
+      await trackAudio.generateTrack(trackSettings);
+      
+    } catch (error) {
+      console.error("Reset failed:", error);
+      sonnerToast("Reset Failed", {
+        description: "Could not reset audio system. Please refresh the page.",
+        action: {
+          label: "Refresh",
+          onClick: () => window.location.reload()
+        }
+      });
+    }
+  };
+  
   // Handle generate button click
   const handleGenerate = async () => {
     if (!audioContext.isLoaded) {
       sonnerToast("Audio Context Error", {
         description: "Audio system could not be initialized. Please try reloading.",
         dismissible: true,
+        action: {
+          label: "Reset Audio",
+          onClick: handleResetAudioSystem
+        }
       });
       return;
     }
@@ -65,10 +110,24 @@ const Index = () => {
         duration: 5000,
       });
     } catch (error) {
-      sonnerToast("Generation Failed", {
-        description: "Could not generate track. See debug panel for details.",
-        dismissible: true,
-      });
+      console.error("Generation failed:", error);
+      
+      // Special handling for context mismatch errors
+      if (error instanceof Error && error.message.includes('context')) {
+        sonnerToast("Audio Context Error", {
+          description: "Audio system encountered a context error. Try resetting the audio system.",
+          action: {
+            label: "Reset Audio",
+            onClick: handleResetAudioSystem
+          },
+          duration: 8000
+        });
+      } else {
+        sonnerToast("Generation Failed", {
+          description: "Could not generate track. See debug panel for details.",
+          dismissible: true,
+        });
+      }
     }
   };
   
@@ -88,6 +147,7 @@ const Index = () => {
         });
       }
     } catch (error) {
+      console.error("Download error:", error);
       sonnerToast("Download Failed", {
         description: "An error occurred while downloading the track.",
         dismissible: true,
@@ -101,6 +161,10 @@ const Index = () => {
       sonnerToast("Audio Error", {
         description: audioContext.error,
         dismissible: true,
+        action: {
+          label: "Reset Audio",
+          onClick: handleResetAudioSystem
+        }
       });
     }
   }, [audioContext.error]);
@@ -139,13 +203,25 @@ const Index = () => {
             <div className="flex flex-col space-y-4">
               <SampleManager />
               <div className="flex flex-wrap justify-between items-center gap-2">
-                <Button 
-                  onClick={handleGenerate}
-                  disabled={trackAudio.isLoading}
-                  className="bg-studio-accent hover:bg-studio-highlight text-white"
-                >
-                  Generate Track
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleGenerate}
+                    disabled={trackAudio.isLoading}
+                    className="bg-studio-accent hover:bg-studio-highlight text-white"
+                  >
+                    Generate Track
+                  </Button>
+                  
+                  <Button
+                    onClick={handleResetAudioSystem}
+                    variant="outline"
+                    className="flex items-center gap-1"
+                    title="Reset audio system if you encounter playback problems"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Reset Audio</span>
+                  </Button>
+                </div>
                 
                 <div className="flex gap-2">
                   <Button 

@@ -98,25 +98,26 @@ export function useInstrumentSetup() {
         }
       }
       
-      // Verify audio context is available and matches
+      // IMPORTANT: Always get the current audio context from Tone.js
       const currentContext = Tone.getContext();
       if (!currentContext) {
         throw new Error("Tone.js context not available");
       }
       
-      // Check for context mismatch (but don't fail the operation)
+      // Check for context mismatch - if we have a mismatch, trigger full context reset
       if (currentContextId && currentContext.toString() !== currentContextId) {
         console.warn(`Audio context mismatch detected for ${instrumentId}`);
         console.log(`Expected: ${currentContextId}, Got: ${currentContext.toString()}`);
+        throw new Error("Audio context mismatch - needs reset");
       }
       
-      // Create new audio nodes
+      // Create new audio nodes using current context
       const volumeNode = new Tone.Volume(instrument.volume);
       const analyser = new Tone.Analyser('waveform', 128);
       
       console.log(`Loading ${instrumentId} sample from: ${url}`);
       
-      // Set up player
+      // Set up player with better error handling
       const player = new Tone.Player({
         url,
         loop: true,
@@ -125,14 +126,25 @@ export function useInstrumentSetup() {
         onload: () => {
           console.log(`${instrumentId} loaded successfully from ${url}`);
           
+          // Double-check context before connecting
+          if (player.context !== currentContext || 
+              volumeNode.context !== currentContext || 
+              analyser.context !== currentContext) {
+            console.error(`Context mismatch found during connection for ${instrumentId}`);
+            handleLoadError(new Error("Audio context mismatch during connection"));
+            return;
+          }
+          
           // Connect audio nodes only after successful load
           try {
             player.connect(volumeNode);
             volumeNode.connect(analyser);
             
-            if (masterVolume) {
+            // Connect to master volume if it exists and is from same context
+            if (masterVolume && masterVolume.context === currentContext) {
               volumeNode.connect(masterVolume);
             } else {
+              // Fall back to default destination if contexts don't match
               volumeNode.connect(Tone.getDestination());
             }
             
@@ -182,17 +194,17 @@ export function useInstrumentSetup() {
         // Use fallback to a simple oscillator if sample fails to load
         setError(prev => prev || `Failed to load ${instrumentId} sample. Using fallback.`);
         
-        // Fallback to a sine wave at appropriate pitch
-        const fallbackFreq = instrumentId === 'bass' ? 55 : 
-                        instrumentId === 'guitar' ? 196 :
-                        instrumentId === 'keys' ? 261 : 200;
-        
         try {
-          // Create new nodes for fallback
+          // Get the current context again to make sure we're using the right one
+          const fallbackContext = Tone.getContext();
+          
+          // Create new nodes for fallback using current context
           const fallbackVolumeNode = new Tone.Volume(instrument.volume);
           const fallbackAnalyser = new Tone.Analyser('waveform', 128);
           const fallbackOsc = new Tone.Oscillator({
-            frequency: fallbackFreq,
+            frequency: instrumentId === 'bass' ? 55 : 
+                    instrumentId === 'guitar' ? 196 :
+                    instrumentId === 'keys' ? 261 : 200,
             type: instrumentId === 'drums' ? 'square' : 'sine',
           });
           
@@ -200,7 +212,8 @@ export function useInstrumentSetup() {
           fallbackOsc.connect(fallbackVolumeNode);
           fallbackVolumeNode.connect(fallbackAnalyser);
           
-          if (masterVolume) {
+          // Connect to master or destination
+          if (masterVolume && masterVolume.context === fallbackContext) {
             fallbackVolumeNode.connect(masterVolume);
           } else {
             fallbackVolumeNode.connect(Tone.getDestination());
@@ -239,7 +252,14 @@ export function useInstrumentSetup() {
         i.id === instrumentId ? { ...i, loadingState: 'error' } : i
       ));
       
-      setError(prev => prev || `Failed to setup ${instrumentId}. Please try refreshing.`);
+      // If we detected a context mismatch, throw a special error
+      if (err instanceof Error && err.message.includes('context mismatch')) {
+        setError("Audio context mismatch detected. Please refresh the page.");
+        throw new Error("CONTEXT_MISMATCH");
+      } else {
+        setError(prev => prev || `Failed to setup ${instrumentId}. Please try refreshing.`);
+      }
+      
       return null;
     }
   }, [getSampleUrlForInstrument]);
