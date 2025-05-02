@@ -28,6 +28,7 @@ export interface UseTrackAudioProps {
   isStarted: boolean;
   startContext: () => Promise<void>;
   getContextId?: () => string | null;
+  resetContext?: () => Promise<boolean>;
 }
 
 export interface TrackDownloadResult {

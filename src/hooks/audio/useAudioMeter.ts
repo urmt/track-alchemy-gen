@@ -10,7 +10,12 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
 
   // Set up master analyser
   const setupMasterAnalyser = useCallback((masterVolume: Tone.Volume | null) => {
-    if (masterVolume && !masterAnalyserRef.current) {
+    if (masterVolume) {
+      // Always dispose of previous analyser to prevent leaks
+      if (masterAnalyserRef.current) {
+        masterAnalyserRef.current.dispose();
+      }
+      
       const analyser = new Tone.Analyser('waveform', 128);
       masterVolume.connect(analyser);
       masterAnalyserRef.current = analyser;
@@ -26,7 +31,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     };
   }, []);
 
-  // Start meter monitoring
+  // Start meter monitoring - always run regardless of playback state
   const startMeterMonitoring = useCallback((
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>
@@ -41,6 +46,8 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     
     // Set up a new interval for meter updates
     meterIntervalRef.current = window.setInterval(() => {
+      let hasActiveMeters = false;
+      
       // Update each instrument meter
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.analyser) {
@@ -53,31 +60,35 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
             );
             
             // Convert to a better visual range (0-100)
-            const meterValue = Math.min(100, Math.max(0, rms * 200));
+            const meterValue = Math.min(100, Math.max(0, rms * 400)); // Increased multiplier for better visibility
+            
+            if (meterValue > 1) {
+              hasActiveMeters = true;
+            }
             
             // Only update if there's a significant change to reduce rerenders
             const currentValue = instrumentsRef.current[instrument.id].meterValue;
-            if (Math.abs(currentValue - meterValue) > 1 || (meterValue < 1 && currentValue > 0)) {
+            if (Math.abs(currentValue - meterValue) > 0.5 || (meterValue < 1 && currentValue > 0)) {
               // Update instrument meter value in our ref object
               instrumentsRef.current[instrument.id].meterValue = meterValue;
               
               // Update state to trigger UI update
-              setInstruments(prev => prev.map(i => 
-                i.id === instrument.id ? { ...i, meterValue } : i
-              ));
+              setInstruments(prev => {
+                const updated = prev.map(i => 
+                  i.id === instrument.id ? { ...i, meterValue } : i
+                );
+                return updated;
+              });
             }
           } catch (err) {
             console.warn(`Error reading meter for ${instrument.id}:`, err);
           }
-        } else if (!isPlaying) {
-          // Reset meter when not playing and no analyser
-          const currentValue = instrumentsRef.current[instrument.id].meterValue;
-          if (currentValue > 0) {
-            instrumentsRef.current[instrument.id].meterValue = 0;
-            setInstruments(prev => prev.map(i => 
-              i.id === instrument.id ? { ...i, meterValue: 0 } : i
-            ));
-          }
+        } else if (instrument.meterValue > 0) {
+          // Reset meter when no analyser and value > 0
+          instrumentsRef.current[instrument.id].meterValue = 0;
+          setInstruments(prev => prev.map(i => 
+            i.id === instrument.id ? { ...i, meterValue: 0 } : i
+          ));
         }
       });
       
@@ -89,13 +100,27 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
             (masterWaveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
             masterWaveform.length
           );
-          const masterMeterVal = Math.min(100, Math.max(0, masterRms * 200));
+          // Increased multiplier for better visibility
+          const masterMeterVal = Math.min(100, Math.max(0, masterRms * 400));
+          
+          if (masterMeterVal > 1) {
+            hasActiveMeters = true;
+          }
+          
           setMasterMeterValue(masterMeterVal);
         } catch (err) {
           console.warn("Error reading master meter:", err);
+          if (masterMeterValue > 0) {
+            setMasterMeterValue(0);
+          }
         }
-      } else {
+      } else if (masterMeterValue > 0) {
         setMasterMeterValue(0);
+      }
+      
+      // Log activity periodically for debugging
+      if (hasActiveMeters) {
+        console.log("Meter activity detected");
       }
     }, 50); // Update every 50ms for smooth meter movement
     
@@ -107,7 +132,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         console.log("Meter monitoring stopped");
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, masterMeterValue]);
 
   // Clean up when component unmounts
   useEffect(() => {

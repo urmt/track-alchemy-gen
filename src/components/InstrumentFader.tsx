@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Slider } from "@/components/ui/slider";
 
@@ -16,7 +17,7 @@ const InstrumentFader: React.FC<InstrumentFaderProps> = ({ name, value, onChange
   
   // Update local state when prop value changes from parent
   useEffect(() => {
-    if (!isInternalUpdateRef.current && localValue !== value) {
+    if (!isInternalUpdateRef.current && Math.abs(localValue - value) > 0.1) {
       console.log(`${name} fader updating from props: ${value}dB`);
       setLocalValue(value);
     }

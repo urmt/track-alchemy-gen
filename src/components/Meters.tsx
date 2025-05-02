@@ -37,25 +37,28 @@ const Meter: React.FC<MeterProps> = ({ value, label }) => {
   ];
 
   // Calculate how many segments to light up (ensure valid value)
-  const safeValue = isNaN(value) ? 0 : value;
-  const activeLevels = Math.floor(safeValue / 10);
+  const safeValue = isNaN(value) ? 0 : Math.min(100, Math.max(0, value));
+  const activeLevels = Math.ceil((safeValue / 100) * segments.length);
   
   return (
     <div className="flex flex-col items-center">
-      <div className="level-meter flex flex-col-reverse gap-[2px]">
-        {segments.map((segment, index) => (
-          <div 
-            key={index}
-            className={`meter-segment ${segment.color} ${index < activeLevels ? 'opacity-100' : 'opacity-20'}`}
-            style={{ 
-              height: `${segment.height}px`, 
-              width: '8px',
-              borderRadius: '1px',
-              transition: 'transform 0.05s ease, opacity 0.05s ease',
-              transform: index < activeLevels ? 'scaleY(1)' : 'scaleY(0.5)'
-            }}
-          />
-        ))}
+      <div className="level-meter flex flex-col-reverse gap-[2px]" data-value={safeValue.toFixed(1)}>
+        {segments.map((segment, index) => {
+          const isActive = segments.length - index <= activeLevels;
+          return (
+            <div 
+              key={index}
+              className={`meter-segment ${segment.color} ${isActive ? 'opacity-100' : 'opacity-20'}`}
+              style={{ 
+                height: `${segment.height}px`, 
+                width: '8px',
+                borderRadius: '1px',
+                transition: 'transform 0.05s ease, opacity 0.05s ease',
+                transform: isActive ? 'scaleY(1)' : 'scaleY(0.5)'
+              }}
+            />
+          );
+        })}
       </div>
       <span className="text-xs mt-1">{label}</span>
     </div>

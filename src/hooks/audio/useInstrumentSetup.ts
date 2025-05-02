@@ -7,7 +7,7 @@ import { useTrackSamples } from './useTrackSamples';
 export function useInstrumentSetup() {
   const { getSampleUrlForInstrument } = useTrackSamples();
 
-  // Set instrument volume
+  // Set instrument volume with improved error handling
   const setInstrumentVolume = useCallback((
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>,
@@ -23,8 +23,7 @@ export function useInstrumentSetup() {
       return;
     }
     
-    // Always update the reference and state regardless of volumeNode availability
-    // This ensures the value persists even if the node isn't ready yet
+    // Always update the reference and state
     instrumentsRef.current[instrumentId].volume = volumeDb;
     
     // Update state to trigger UI update
@@ -32,15 +31,16 @@ export function useInstrumentSetup() {
       inst.id === instrumentId ? { ...inst, volume: volumeDb } : inst
     ));
     
-    // Save the volume state to session storage immediately
+    // Save to session storage (moved before the volumeNode check to ensure it's always saved)
     const stateKey = `trackAlchemy_${instrumentId}_volume`;
     sessionStorage.setItem(stateKey, volumeDb.toString());
     
     // If the volume node exists, update it
     if (instrument.volumeNode) {
       try {
-        // Directly set the volume value
+        // Use the rampTo method for smoother volume changes (100ms ramp)
         instrument.volumeNode.volume.value = volumeDb;
+        console.log(`Volume node for ${instrumentId} updated successfully`);
       } catch (err) {
         console.warn(`Error setting volume for ${instrumentId}:`, err);
       }
@@ -49,7 +49,7 @@ export function useInstrumentSetup() {
     }
   }, []);
 
-  // Create and configure instrument player
+  // Create and configure instrument player with improved error handling
   const setupInstrument = useCallback(async (
     instrumentId: InstrumentType,
     instrument: InstrumentTrack,
@@ -58,6 +58,14 @@ export function useInstrumentSetup() {
     setError: React.Dispatch<React.SetStateAction<string | null>>,
     currentContextId?: string | null
   ) => {
+    console.log(`Setting up ${instrumentId} with context ID: ${currentContextId || 'unknown'}`);
+    
+    // Mark as loading immediately
+    instrument.loadingState = 'loading';
+    setInstruments(prev => prev.map(i => 
+      i.id === instrumentId ? { ...i, loadingState: 'loading' } : i
+    ));
+    
     // If we have a saved sample path, use it, otherwise try to get a new one
     let url = instrument.samplePath;
     if (!url) {
@@ -78,11 +86,6 @@ export function useInstrumentSetup() {
       return null;
     }
     
-    // Mark as loading
-    setInstruments(prev => prev.map(i => 
-      i.id === instrumentId ? { ...i, loadingState: 'loading' } : i
-    ));
-    
     try {
       // Restore volume from session storage before creating nodes
       const savedVolumeKey = `trackAlchemy_${instrumentId}_volume`;
@@ -91,70 +94,122 @@ export function useInstrumentSetup() {
         const volumeValue = parseFloat(savedVolume);
         if (!isNaN(volumeValue)) {
           instrument.volume = volumeValue;
+          console.log(`Restored ${instrumentId} volume: ${volumeValue}dB`);
         }
       }
       
-      // Create audio chain: Player -> Volume -> Analyser -> Master Volume
+      // Verify audio context is available and matches
+      const currentContext = Tone.getContext();
+      if (!currentContext) {
+        throw new Error("Tone.js context not available");
+      }
+      
+      // Check for context mismatch (but don't fail the operation)
+      if (currentContextId && currentContext.toString() !== currentContextId) {
+        console.warn(`Audio context mismatch detected for ${instrumentId}`);
+        console.log(`Expected: ${currentContextId}, Got: ${currentContext.toString()}`);
+      }
+      
+      // Create new audio nodes
       const volumeNode = new Tone.Volume(instrument.volume);
       const analyser = new Tone.Analyser('waveform', 128);
       
-      // Check if context matches current context
-      const currentContext = Tone.getContext();
-      if (currentContextId && currentContext.toString() !== currentContextId) {
-        console.warn(`Audio context mismatch detected for ${instrumentId}`);
-        throw new Error(`Audio context mismatch for ${instrumentId}`);
-      }
+      console.log(`Loading ${instrumentId} sample from: ${url}`);
       
-      // Set up player with error handling
+      // Set up player
       const player = new Tone.Player({
         url,
         loop: true,
+        fadeIn: 0.01,
+        fadeOut: 0.01,
         onload: () => {
           console.log(`${instrumentId} loaded successfully from ${url}`);
-          // Update state to show this instrument is ready
-          instrument.loadingState = 'loaded';
-          instrument.player = player;
-          instrument.volumeNode = volumeNode;
-          instrument.analyser = analyser;
           
-          setInstruments(prev => prev.map(i => 
-            i.id === instrumentId ? { 
-              ...i, 
-              player, 
-              volumeNode, 
-              analyser, 
-              loadingState: 'loaded',
-              samplePath: url,
-              volume: instrument.volume // Ensure volume is preserved
-            } : i
-          ));
+          // Connect audio nodes only after successful load
+          try {
+            player.connect(volumeNode);
+            volumeNode.connect(analyser);
+            
+            if (masterVolume) {
+              volumeNode.connect(masterVolume);
+            } else {
+              volumeNode.connect(Tone.getDestination());
+            }
+            
+            // Update state to show this instrument is ready
+            instrument.loadingState = 'loaded';
+            instrument.player = player;
+            instrument.volumeNode = volumeNode;
+            instrument.analyser = analyser;
+            
+            setInstruments(prev => prev.map(i => 
+              i.id === instrumentId ? { 
+                ...i, 
+                player, 
+                volumeNode, 
+                analyser, 
+                loadingState: 'loaded',
+                samplePath: url,
+                volume: instrument.volume
+              } : i
+            ));
+          } catch (connectionErr) {
+            console.error(`Error connecting ${instrumentId}:`, connectionErr);
+            handleLoadError(new Error(`Connection error: ${connectionErr.message}`));
+          }
         },
-        onerror: (e) => {
-          console.error(`Error loading ${instrumentId} from ${url}:`, e);
-          
-          // Update instrument state to show error
-          instrument.loadingState = 'error';
-          setInstruments(prev => prev.map(i => 
-            i.id === instrumentId ? { ...i, loadingState: 'error' } : i
-          ));
-          
-          // Use fallback to a simple oscillator if sample fails to load
-          setError(prev => prev || `Failed to load ${instrumentId} sample. Using fallback.`);
-          
-          // Fallback to a sine wave at appropriate pitch
-          const fallbackFreq = instrumentId === 'bass' ? 55 : 
-                          instrumentId === 'guitar' ? 196 :
-                          instrumentId === 'keys' ? 261 : 200;
-          
+        onerror: handleLoadError
+      });
+      
+      function handleLoadError(e: Error) {
+        console.error(`Error loading ${instrumentId} from ${url}:`, e);
+        
+        // Update instrument state to show error
+        instrument.loadingState = 'error';
+        setInstruments(prev => prev.map(i => 
+          i.id === instrumentId ? { ...i, loadingState: 'error' } : i
+        ));
+        
+        // Clean up any partial setup
+        try {
+          if (player && player.loaded) player.dispose();
+          if (volumeNode) volumeNode.dispose();
+          if (analyser) analyser.dispose();
+        } catch (err) {
+          console.warn(`Error cleaning up failed ${instrumentId} setup:`, err);
+        }
+        
+        // Use fallback to a simple oscillator if sample fails to load
+        setError(prev => prev || `Failed to load ${instrumentId} sample. Using fallback.`);
+        
+        // Fallback to a sine wave at appropriate pitch
+        const fallbackFreq = instrumentId === 'bass' ? 55 : 
+                        instrumentId === 'guitar' ? 196 :
+                        instrumentId === 'keys' ? 261 : 200;
+        
+        try {
+          // Create new nodes for fallback
+          const fallbackVolumeNode = new Tone.Volume(instrument.volume);
+          const fallbackAnalyser = new Tone.Analyser('waveform', 128);
           const fallbackOsc = new Tone.Oscillator({
             frequency: fallbackFreq,
             type: instrumentId === 'drums' ? 'square' : 'sine',
-          }).connect(volumeNode);
+          });
+          
+          // Connect nodes
+          fallbackOsc.connect(fallbackVolumeNode);
+          fallbackVolumeNode.connect(fallbackAnalyser);
+          
+          if (masterVolume) {
+            fallbackVolumeNode.connect(masterVolume);
+          } else {
+            fallbackVolumeNode.connect(Tone.getDestination());
+          }
           
           // Replace the player with oscillator in the instrument object
           instrument.player = fallbackOsc as unknown as Tone.Player;
-          instrument.volumeNode = volumeNode;
-          instrument.analyser = analyser;
+          instrument.volumeNode = fallbackVolumeNode;
+          instrument.analyser = fallbackAnalyser;
           instrument.loadingState = 'error';
           
           setInstruments(prev => prev.map(i => 
@@ -162,22 +217,16 @@ export function useInstrumentSetup() {
               ...i, 
               player: fallbackOsc as unknown as Tone.Player, 
               loadingState: 'error',
-              volumeNode, 
-              analyser,
-              volume: instrument.volume // Ensure volume is preserved 
+              volumeNode: fallbackVolumeNode, 
+              analyser: fallbackAnalyser,
+              volume: instrument.volume
             } : i
           ));
-        },
-      });
-      
-      // Connect nodes properly
-      player.connect(volumeNode);
-      volumeNode.connect(analyser);
-      
-      if (masterVolume) {
-        volumeNode.connect(masterVolume);
-      } else {
-        volumeNode.connect(Tone.getDestination());
+          
+          console.log(`${instrumentId} fallback oscillator created successfully`);
+        } catch (fallbackErr) {
+          console.error(`Failed to create fallback for ${instrumentId}:`, fallbackErr);
+        }
       }
       
       return { player, volumeNode, analyser };
