@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -44,6 +43,7 @@ const Index = () => {
   const handleResetAudioSystem = async () => {
     sonnerToast("Resetting Audio System", {
       description: "Please wait while the audio system resets...",
+      duration: 3000,
     });
     
     // Stop any playing audio
@@ -53,25 +53,30 @@ const Index = () => {
     
     try {
       // Reset the audio context
-      await audioContext.resetContext();
+      const success = await audioContext.resetContext();
       
-      // Clear session storage
-      sessionStorage.removeItem('trackAlchemyState');
-      
-      sonnerToast("Audio System Reset", {
-        description: "Audio system has been reset. You can now generate a new track.",
-      });
-      
-      // Small delay to ensure context is fully reset
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Try to generate a new track with defaults
-      await trackAudio.generateTrack(trackSettings);
-      
+      if (success) {
+        // Clear session storage
+        sessionStorage.removeItem('trackAlchemyState');
+        
+        sonnerToast("Audio System Reset", {
+          description: "Audio system has been reset. You can now generate a new track.",
+          duration: 4000,
+        });
+        
+        // Small delay to ensure context is fully reset
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Try to generate a new track with defaults
+        await trackAudio.generateTrack(trackSettings);
+      } else {
+        throw new Error("Reset operation failed");
+      }
     } catch (error) {
       console.error("Reset failed:", error);
       sonnerToast("Reset Failed", {
         description: "Could not reset audio system. Please refresh the page.",
+        duration: 8000,
         action: {
           label: "Refresh",
           onClick: () => window.location.reload()
@@ -83,9 +88,10 @@ const Index = () => {
   // Handle generate button click
   const handleGenerate = async () => {
     if (!audioContext.isLoaded) {
-      sonnerToast("Audio Context Error", {
-        description: "Audio system could not be initialized. Please try reloading.",
+      sonnerToast("Audio System Not Ready", {
+        description: "Audio system is not initialized properly. Try resetting the audio system.",
         dismissible: true,
+        duration: 8000,
         action: {
           label: "Reset Audio",
           onClick: handleResetAudioSystem
@@ -95,6 +101,11 @@ const Index = () => {
     }
     
     try {
+      sonnerToast("Generating Track", {
+        description: "Creating your track...",
+        duration: 3000,
+      });
+      
       await trackAudio.generateTrack(trackSettings);
       
       // Generate chord progression (just for display in this version)
@@ -116,16 +127,21 @@ const Index = () => {
       if (error instanceof Error && error.message.includes('context')) {
         sonnerToast("Audio Context Error", {
           description: "Audio system encountered a context error. Try resetting the audio system.",
+          duration: 8000,
           action: {
             label: "Reset Audio",
             onClick: handleResetAudioSystem
           },
-          duration: 8000
         });
       } else {
         sonnerToast("Generation Failed", {
-          description: "Could not generate track. See debug panel for details.",
+          description: "Could not generate track. Try resetting the audio system.",
           dismissible: true,
+          duration: 8000,
+          action: {
+            label: "Reset Audio",
+            onClick: handleResetAudioSystem
+          },
         });
       }
     }
@@ -139,11 +155,13 @@ const Index = () => {
         sonnerToast("Track Downloaded", {
           description: "Your track has been successfully downloaded.",
           dismissible: true,
+          duration: 4000,
         });
       } else {
         sonnerToast("Download Failed", {
           description: result.error || "Could not download track",
           dismissible: true,
+          duration: 8000,
         });
       }
     } catch (error) {
@@ -151,6 +169,7 @@ const Index = () => {
       sonnerToast("Download Failed", {
         description: "An error occurred while downloading the track.",
         dismissible: true,
+        duration: 8000,
       });
     }
   };
@@ -158,9 +177,10 @@ const Index = () => {
   // Effects to handle errors
   useEffect(() => {
     if (audioContext.error) {
-      sonnerToast("Audio Error", {
+      sonnerToast("Audio System Error", {
         description: audioContext.error,
         dismissible: true,
+        duration: 8000,
         action: {
           label: "Reset Audio",
           onClick: handleResetAudioSystem
@@ -174,9 +194,23 @@ const Index = () => {
       sonnerToast("Track Error", {
         description: trackAudio.error,
         dismissible: true,
+        duration: 8000,
       });
     }
   }, [trackAudio.error]);
+  
+  // Add automatic reset attempt if audio context failed to initialize
+  useEffect(() => {
+    if (audioContext.error && audioContext.error.includes("Failed to initialize audio context")) {
+      // Try to reset the context automatically after a short delay
+      const timer = setTimeout(() => {
+        console.log("Attempting automatic audio context reset");
+        handleResetAudioSystem();
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [audioContext.error]);
   
   return (
     <div className="min-h-screen bg-studio-bg text-white">
@@ -308,7 +342,9 @@ const Index = () => {
                 ? "Loading samples..." 
                 : trackAudio.isPlaying 
                   ? "Playing track" 
-                  : "Ready"}
+                  : audioContext.isLoaded 
+                    ? "Ready" 
+                    : "Audio system initializing..."}
             </div>
           </div>
           
@@ -320,7 +356,7 @@ const Index = () => {
                 trackSettings={trackAudio.trackSettings}
                 isLoading={trackAudio.isLoading}
                 isPlaying={trackAudio.isPlaying}
-                error={trackAudio.error}
+                error={trackAudio.error || audioContext.error}
                 instruments={trackAudio.instruments}
               />
             </div>
