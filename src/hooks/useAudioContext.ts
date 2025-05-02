@@ -30,13 +30,24 @@ export function useAudioContext() {
     initializingRef.current = true;
     
     try {
+      console.log("Initializing audio context");
+      
       // Clean up any existing nodes first
       if (masterVolumeRef.current) {
         masterVolumeRef.current.dispose();
       }
       
-      // Tone.js automatically creates its context
-      const toneContext = Tone.getContext();
+      // Use a try/catch when getting the Tone context
+      let toneContext;
+      try {
+        // Tone.js automatically creates its context
+        toneContext = Tone.getContext();
+      } catch (err) {
+        console.error("Failed to get Tone context:", err);
+        // Create a new context if getting fails
+        Tone.start();
+        toneContext = Tone.getContext();
+      }
       
       // Store unique context identifier
       contextIdRef.current = toneContext.toString(); 
@@ -203,7 +214,7 @@ export function useAudioContext() {
       }
       
       // Create new context
-      Tone.start();
+      await Tone.start();
       const newContext = Tone.getContext();
       const newMasterVolume = new Tone.Volume(-12).toDestination();
       masterVolumeRef.current = newMasterVolume;
