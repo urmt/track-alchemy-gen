@@ -117,13 +117,16 @@ export function useAudioContext() {
       
       // Force a context reset on error
       try {
-        Tone.getContext().close();
+        // Instead of calling close() directly, we'll dispose the context
+        if (state.context) {
+          state.context.dispose();
+        }
         console.log("Closed failed audio context");
       } catch (closeErr) {
         console.warn("Error while closing context:", closeErr);
       }
     }
-  }, [state.isStarted]);
+  }, [state.isStarted, state.context]);
   
   // Set master volume in dB (-60 to 0)
   const setMasterVolume = useCallback((volume: number) => {
@@ -195,7 +198,8 @@ export function useAudioContext() {
       
       // Close existing context
       if (state.context) {
-        await state.context.close();
+        // Replace close() with dispose()
+        state.context.dispose();
       }
       
       // Create new context
