@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "@/components/ui/sonner";
-import { Play, Pause, ChevronDown, Download, RefreshCw } from "lucide-react";
+import { Play, Pause, ChevronDown, Download, RefreshCw, FileMusic } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useTrackAudio, type TrackSettings } from "@/hooks/audio/useTrackAudio";
 import TestTone from "@/components/TestTone";
@@ -159,7 +159,7 @@ const Index = () => {
       const result = await trackAudio.downloadTrack();
       if (result.success) {
         sonnerToast("Track Downloaded", {
-          description: "Your track has been successfully downloaded.",
+          description: "Your track has been successfully downloaded as WAV.",
           dismissible: true,
           duration: 4000,
         });
@@ -174,6 +174,33 @@ const Index = () => {
       console.error("Download error:", error);
       sonnerToast("Download Failed", {
         description: "An error occurred while downloading the track.",
+        dismissible: true,
+        duration: 8000,
+      });
+    }
+  };
+  
+  // Handle download MIDI
+  const handleDownloadMidi = async () => {
+    try {
+      const result = trackAudio.downloadMidi();
+      if (result.success) {
+        sonnerToast("MIDI Downloaded", {
+          description: "Your track has been successfully downloaded as MIDI file.",
+          dismissible: true,
+          duration: 4000,
+        });
+      } else {
+        sonnerToast("MIDI Download Failed", {
+          description: result.error || "Could not download MIDI",
+          dismissible: true,
+          duration: 8000,
+        });
+      }
+    } catch (error) {
+      console.error("MIDI Download error:", error);
+      sonnerToast("MIDI Download Failed", {
+        description: "An error occurred while creating the MIDI file.",
         dismissible: true,
         duration: 8000,
       });
@@ -292,13 +319,25 @@ const Index = () => {
                   </Button>
                   
                   <Button
+                    onClick={handleDownloadMidi}
+                    disabled={!trackAudio.isTrackGenerated}
+                    className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                    type="button"
+                    title="Download as MIDI file (pattern only, no samples)"
+                  >
+                    <FileMusic className="w-4 h-4" />
+                    <span>MIDI</span>
+                  </Button>
+                  
+                  <Button
                     onClick={handleDownloadTrack}
                     disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
+                    title="Download as WAV audio file"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Download</span>
+                    <span>WAV</span>
                   </Button>
                 </div>
               </div>

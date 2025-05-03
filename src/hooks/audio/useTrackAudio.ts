@@ -7,6 +7,7 @@ import * as Tone from 'tone';
 import { InstrumentType, InstrumentTrack, TrackSettings, UseTrackAudioProps } from './types';
 import { useAudioMeter } from './useAudioMeter';
 import { useAudioExporter } from './useAudioExporter';
+import { useMidiExporter } from './useMidiExporter';
 import { useTrackSamples } from './useTrackSamples';
 import { useTrackState } from './useTrackState';
 import { useInstrumentSetup } from './useInstrumentSetup';
@@ -79,6 +80,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
   } = useAudioMeter(instruments, isPlaying);
   
   const { downloadTrack } = useAudioExporter();
+  const { downloadMidiTrack } = useMidiExporter();
   const { getSampleUrlForInstrument } = useTrackSamples();
   const { setupInstrument, setInstrumentVolume: setVolume } = useInstrumentSetup();
   
@@ -458,6 +460,11 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
   const handleDownloadTrack = useCallback(async () => {
     return downloadTrack(isTrackGenerated, instrumentsRef, trackSettings);
   }, [downloadTrack, isTrackGenerated, trackSettings]);
+  
+  // Add handler for MIDI download
+  const handleDownloadMidi = useCallback(() => {
+    return downloadMidiTrack(isTrackGenerated, trackSettings);
+  }, [downloadMidiTrack, isTrackGenerated, trackSettings]);
 
   return {
     instruments,
@@ -472,5 +479,6 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     setInstrumentVolume,
     setTrackSettings,
     downloadTrack: handleDownloadTrack,
+    downloadMidi: handleDownloadMidi,
   };
 }
