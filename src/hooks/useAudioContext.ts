@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -47,10 +46,14 @@ export function useAudioContext() {
           if (existingContext) {
             // Only attempt to dispose if it's not already closed
             if (existingContext.state !== 'closed') {
-              // Fix: Access the raw Web Audio context through rawContext property
-              if (existingContext.rawContext && typeof existingContext.rawContext.close === 'function') {
-                await existingContext.rawContext.close();
-                console.log("Closed existing Tone.js context");
+              // Fix: Use the close method on the AudioContext interface properly
+              if (existingContext.rawContext) {
+                // Cast to AudioContext to access close method
+                const audioCtx = existingContext.rawContext as AudioContext;
+                if (typeof audioCtx.close === 'function') {
+                  await audioCtx.close();
+                  console.log("Closed existing Tone.js context");
+                }
               }
             } else {
               console.log("Existing context already closed");
@@ -156,7 +159,7 @@ export function useAudioContext() {
     };
   }, []);
 
-  // Start audio context with error handling and timeout
+  // Force a context reset on error
   const startContext = useCallback(async () => {
     try {
       if (state.isStarted) {
@@ -185,8 +188,12 @@ export function useAudioContext() {
       
       // Force a context reset on error
       try {
-        if (state.context && state.context.rawContext && typeof state.context.rawContext.close === 'function') {
-          await state.context.rawContext.close();
+        if (state.context && state.context.rawContext) {
+          // Cast to AudioContext to access close method
+          const audioCtx = state.context.rawContext as AudioContext;
+          if (typeof audioCtx.close === 'function') {
+            await audioCtx.close();
+          }
         }
         console.log("Disposed failed audio context");
       } catch (closeErr) {
@@ -307,10 +314,13 @@ export function useAudioContext() {
       if (state.context) {
         try {
           // Only attempt to dispose if it's not already closed
-          if (state.context.state !== 'closed' && state.context.rawContext && 
-              typeof state.context.rawContext.close === 'function') {
-            await state.context.rawContext.close();
-            console.log("Disposed old context during reset");
+          if (state.context.state !== 'closed' && state.context.rawContext) {
+            // Cast to AudioContext to access close method
+            const audioCtx = state.context.rawContext as AudioContext;
+            if (typeof audioCtx.close === 'function') {
+              await audioCtx.close();
+              console.log("Disposed old context during reset");
+            }
           }
         } catch (err) {
           console.warn("Error disposing old context:", err);
