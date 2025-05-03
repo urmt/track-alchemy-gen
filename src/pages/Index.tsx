@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -21,11 +22,16 @@ const Index = () => {
   // Set up audio context
   const audioContext = useAudioContext();
   
-  // Set up track audio
+  // Set up track audio - fixing the type mismatch for the startContext prop
   const trackAudio = useTrackAudio({
     masterVolume: audioContext.masterVolume,
     isStarted: audioContext.isStarted,
-    startContext: audioContext.startContext,
+    // Fix the type mismatch by wrapping the original function
+    startContext: async () => {
+      const result = await audioContext.startContext();
+      // The result is ignored, so we return void
+      return;
+    },
     getContextId: audioContext.getContextId,
     resetContext: audioContext.resetContext,
   });

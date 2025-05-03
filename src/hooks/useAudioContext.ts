@@ -24,7 +24,7 @@ export function useAudioContext() {
   const maxRetries = 3;
   const retryRef = useRef<number>(0);
 
-  // Initialize audio context
+  // Initialize audio context - with improved handling for invalid state errors
   useEffect(() => {
     // Prevent multiple initializations
     if (initializingRef.current) return;
@@ -40,26 +40,29 @@ export function useAudioContext() {
           masterVolumeRef.current = null;
         }
         
-        // Safe cleanup of any existing Tone.js context
+        // Close any existing audio context to prevent multiple contexts
         try {
           const existingContext = Tone.getContext();
           if (existingContext) {
             // Only attempt to dispose if it's not already closed
             if (existingContext.state !== 'closed') {
-              existingContext.dispose();
-              console.log("Disposed existing Tone.js context");
+              await existingContext.close();
+              console.log("Closed existing Tone.js context");
             } else {
               console.log("Existing context already closed");
             }
           }
         } catch (err) {
-          console.warn("No existing context to dispose:", err);
+          console.warn("No existing context to dispose or error closing:", err);
         }
         
-        // Create a fresh context with proper error handling
+        // Create a fresh AudioContext directly instead of using Tone.start()
         try {
-          // Create a new audio context
-          await Tone.start();
+          // Create a new Web Audio context
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          
+          // Initialize a new Tone context with this audio context
+          Tone.setContext(new Tone.Context(audioContext));
           await Tone.loaded();
           
           const toneContext = Tone.getContext();
@@ -90,7 +93,7 @@ export function useAudioContext() {
             
             setState({
               context: toneContext,
-              isStarted: true, // Mark as started since we called Tone.start() already
+              isStarted: true, // Mark as started since we've initialized directly
               isLoaded: true,
               error: null,
               masterVolume,
@@ -154,22 +157,21 @@ export function useAudioContext() {
     try {
       if (state.isStarted) {
         console.log("Context already started");
-        return;
+        return true;
       }
       
       console.log("Starting audio context...");
       
-      // Set a timeout to prevent hanging
-      const startPromise = Tone.start();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Context start timed out")), 5000);
-      });
-      
-      await Promise.race([startPromise, timeoutPromise]);
-      
-      setState(prev => ({ ...prev, isStarted: true }));
-      console.log("Audio context started successfully");
-      return true;
+      if (state.context) {
+        // Try to resume the context directly
+        await state.context.resume();
+        
+        setState(prev => ({ ...prev, isStarted: true }));
+        console.log("Audio context started successfully");
+        return true;
+      } else {
+        throw new Error("No audio context available");
+      }
     } catch (err) {
       console.error("Failed to start audio context:", err);
       setState(prev => ({ 
@@ -180,7 +182,7 @@ export function useAudioContext() {
       // Force a context reset on error
       try {
         if (state.context && state.context.state !== 'closed') {
-          state.context.dispose();
+          await state.context.close();
         }
         console.log("Disposed failed audio context");
       } catch (closeErr) {
@@ -236,55 +238,31 @@ export function useAudioContext() {
         return;
       }
       
-      // Safe tone generation
+      // Use Web Audio API directly as a fallback approach that's more reliable
       try {
-        const osc = new Tone.Oscillator({
-          frequency: 440,
-          type: "sine",
-          volume: -12 // Safe volume level
-        }).connect(masterVolumeRef.current);
+        // Use Web Audio API directly as fallback
+        const audioCtx = state.context?.rawContext || 
+                         new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
         
-        osc.start().stop("+0.5");
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); // Safe volume
         
-        // Automatically dispose after playback
-        setTimeout(() => {
-          osc.dispose();
-        }, 600);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
         
-        console.log("Test tone played successfully");
-      } catch (toneError) {
-        console.error("Tone generation failed:", toneError);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.5);
         
-        // Try a fallback approach
-        try {
-          // Use Web Audio API directly as fallback
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          
-          oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
-          gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-          
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          oscillator.start();
-          oscillator.stop(audioContext.currentTime + 0.5);
-          
-          // Clean up
-          setTimeout(() => {
-            audioContext.close();
-          }, 600);
-          
-          console.log("Test tone played with fallback method");
-        } catch (fallbackError) {
-          console.error("Fallback tone generation failed:", fallbackError);
-          setState(prev => ({
-            ...prev,
-            error: "Could not play test tone. Please check audio permissions."
-          }));
-        }
+        console.log("Test tone played with direct Web Audio API");
+      } catch (fallbackError) {
+        console.error("Test tone generation failed:", fallbackError);
+        setState(prev => ({
+          ...prev,
+          error: "Could not play test tone. Please check audio permissions."
+        }));
       }
     } catch (err) {
       console.error("Error playing test tone:", err);
@@ -296,7 +274,7 @@ export function useAudioContext() {
       // Try reset on failure
       resetContext().catch(e => console.error("Failed to reset after test tone error:", e));
     }
-  }, [state.isStarted, startContext]);
+  }, [state.isStarted, state.context, startContext]);
   
   // Reset context - completely rebuild the audio context
   const resetContext = useCallback(async () => {
@@ -326,7 +304,7 @@ export function useAudioContext() {
         try {
           // Only attempt to dispose if it's not already closed
           if (state.context.state !== 'closed') {
-            state.context.dispose();
+            await state.context.close();
             console.log("Disposed old context during reset");
           }
         } catch (err) {
@@ -349,65 +327,49 @@ export function useAudioContext() {
       // Short delay to ensure cleanup
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Create new context with exponential backoff retries
-      let success = false;
-      let attempts = 0;
-      const maxAttempts = 3;
-      
-      while (!success && attempts < maxAttempts) {
-        try {
-          attempts++;
+      // Create new AudioContext directly 
+      try {
+        // Create a new Web Audio context
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        
+        // Initialize a new Tone context with this audio context
+        Tone.setContext(new Tone.Context(audioContext));
+        await Tone.loaded();
+        
+        const newContext = Tone.getContext();
+        
+        // Verify the context is valid
+        if (newContext && newContext.state !== 'closed') {
+          const newMasterVolume = new Tone.Volume(-12).toDestination();
+          masterVolumeRef.current = newMasterVolume;
+          contextIdRef.current = newContext.toString();
           
-          // Create a new audio context
-          await Tone.start();
-          await Tone.loaded();
+          setState({
+            context: newContext,
+            isStarted: true,
+            isLoaded: true,
+            error: null,
+            masterVolume: newMasterVolume,
+          });
           
-          const newContext = Tone.getContext();
+          console.log("Audio context reset with new ID:", contextIdRef.current);
           
-          // Verify the context is valid
-          if (newContext && newContext.state !== 'closed') {
-            const newMasterVolume = new Tone.Volume(-12).toDestination();
-            masterVolumeRef.current = newMasterVolume;
-            contextIdRef.current = newContext.toString();
-            
-            setState({
-              context: newContext,
-              isStarted: true,
-              isLoaded: true,
-              error: null,
-              masterVolume: newMasterVolume,
-            });
-            
-            console.log("Audio context reset with new ID:", contextIdRef.current);
-            success = true;
-          } else {
-            throw new Error("Failed to create valid audio context on reset");
-          }
-        } catch (err) {
-          console.error(`Reset attempt ${attempts} failed:`, err);
+          // Clear session storage data that might reference old context
+          sessionStorage.removeItem('trackAlchemyState');
           
-          // Wait longer between each retry
-          if (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempts)));
-          }
+          return true;
+        } else {
+          throw new Error("Failed to create valid audio context on reset");
         }
-      }
-      
-      // Clear session storage data that might reference old context
-      // We keep the volume settings but clear any saved track state
-      sessionStorage.removeItem('trackAlchemyState');
-      
-      // If all attempts failed
-      if (!success) {
+      } catch (err) {
+        console.error("Reset failed:", err);
         setState(prev => ({
           ...prev,
           isLoaded: false,
-          error: "Failed to reset audio system after multiple attempts. Please refresh the page."
+          error: "Failed to reset audio system. Please refresh the page."
         }));
         return false;
       }
-      
-      return true;
     } catch (err) {
       console.error("Failed to reset audio context:", err);
       setState(prev => ({ 
