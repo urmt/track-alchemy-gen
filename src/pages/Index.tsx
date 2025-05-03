@@ -217,6 +217,12 @@ const Index = () => {
       return () => clearTimeout(timer);
     }
   }, [audioContext.error]);
+
+  // Fix for debug mode toggle and button click handlers
+  const handleDebugToggle = (checked: boolean) => {
+    console.log("Debug mode toggled:", checked);
+    setShowDebug(checked);
+  };
   
   return (
     <div className="min-h-screen bg-studio-bg text-white">
@@ -248,6 +254,7 @@ const Index = () => {
                     onClick={handleGenerate}
                     disabled={trackAudio.isLoading}
                     className="bg-studio-accent hover:bg-studio-highlight text-white"
+                    type="button"
                   >
                     Generate Track
                   </Button>
@@ -257,6 +264,7 @@ const Index = () => {
                     variant="outline"
                     className="flex items-center gap-1"
                     title="Reset audio system if you encounter playback problems"
+                    type="button"
                   >
                     <RefreshCw className="w-4 h-4" />
                     <span>Reset Audio</span>
@@ -265,9 +273,10 @@ const Index = () => {
                 
                 <div className="flex gap-2">
                   <Button 
-                    onClick={trackAudio.togglePlayback}
+                    onClick={() => trackAudio.togglePlayback()}
                     disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                    type="button"
                   >
                     {trackAudio.isPlaying ? (
                       <>
@@ -286,6 +295,7 @@ const Index = () => {
                     onClick={handleDownloadTrack}
                     disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                    type="button"
                   >
                     <Download className="w-4 h-4" />
                     <span>Download</span>
@@ -330,12 +340,13 @@ const Index = () => {
             <div className="flex items-center space-x-2">
               <Switch 
                 id="debug-mode" 
-                checked={showDebug} 
-                onCheckedChange={setShowDebug} 
+                checked={showDebug}
+                onCheckedChange={handleDebugToggle}
               />
               <label 
                 htmlFor="debug-mode" 
                 className="text-sm cursor-pointer flex items-center"
+                onClick={() => setShowDebug(!showDebug)}
               >
                 <span>Debug Mode</span>
                 <ChevronDown className={`ml-1 w-4 h-4 transition-transform ${showDebug ? 'rotate-180' : ''}`} />

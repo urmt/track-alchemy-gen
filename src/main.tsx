@@ -4,9 +4,17 @@ import { StrictMode } from 'react'
 import App from './App.tsx'
 import './index.css'
 
-// Add global error handler
+// Add global error handler with improved debugging
 window.addEventListener('error', (event) => {
   console.error('Global error caught:', event.error);
+  // Add more detailed logging for debugging UI interactivity issues
+  console.error('Error details:', {
+    message: event.error?.message,
+    stack: event.error?.stack,
+    type: event.type,
+    target: event.target
+  });
+  
   // Prevent white screen by showing an error message
   if (document.body.innerHTML === '') {
     document.body.innerHTML = `
@@ -20,6 +28,14 @@ window.addEventListener('error', (event) => {
     `;
   }
 });
+
+// Add click event debugging to help diagnose UI interactivity issues
+if (process.env.NODE_ENV !== 'production') {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    console.log('Click registered on:', target.tagName, target.className, e);
+  });
+}
 
 try {
   const rootElement = document.getElementById("root");
