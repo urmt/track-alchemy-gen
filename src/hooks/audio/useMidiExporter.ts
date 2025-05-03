@@ -83,14 +83,24 @@ export function useMidiExporter() {
           })
         );
 
-        // Add tempo
-        track.setTempo(trackSettings.bpm);
+        // Add tempo - correct syntax requires an object with tempo property
+        track.addEvent(new MidiWriter.TempoEvent({ tempo: trackSettings.bpm }));
         
-        // If this is drums, set to channel 10 (9 in zero-based) which is standard for drums in MIDI
+        // Set channel using ControlChangeEvent instead of direct setChannel method
         if (instrument === 'drums') {
-          track.setChannel(9);
+          // For drums, set to channel 10 (9 in zero-based) using events
+          track.addEvent(new MidiWriter.ControlChangeEvent({
+            controlNumber: 32, // Bank select LSB
+            controlValue: 0,
+            channel: 9 // Channel 10 (zero-indexed)
+          }));
         } else {
-          track.setChannel(i);
+          // For other instruments, use channels 1-3 (0-2)
+          track.addEvent(new MidiWriter.ControlChangeEvent({
+            controlNumber: 32, // Bank select LSB
+            controlValue: 0,
+            channel: i % 8 // Use channels 0-7 (avoid 9 which is for drums)
+          }));
         }
         
         // Generate notes based on instrument type
