@@ -1,5 +1,6 @@
 
-import { MidiWriter } from 'midi-writer-js';
+// Import MidiWriter correctly - it's a default export
+import MidiWriter from 'midi-writer-js';
 import { TrackSettings } from './types';
 
 export function useMidiExporter() {

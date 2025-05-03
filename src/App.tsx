@@ -99,7 +99,8 @@ const queryClient = new QueryClient({
 const App = () => (
   <WithErrorBoundary>
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
+      {/* Ensure TooltipProvider is correctly used with a delayDuration to prevent null issues */}
+      <TooltipProvider delayDuration={0}>
         <div className="relative z-0">
           <Toaster />
           <Sonner position="top-center" expand={true} closeButton={true} />
