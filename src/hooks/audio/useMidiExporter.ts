@@ -83,24 +83,21 @@ export function useMidiExporter() {
           })
         );
 
-        // Add tempo - correct syntax requires an object with tempo property
-        track.addEvent(new MidiWriter.TempoEvent({ tempo: trackSettings.bpm }));
+        // Add tempo as a separate event with the correct format
+        const tempoEvent = new MidiWriter.MetaEvent({
+          data: [0x51, 0x03], // Set tempo meta event
+          type: 'tempo',
+          tempo: trackSettings.bpm 
+        });
+        track.addEvent(tempoEvent);
         
-        // Set channel using ControlChangeEvent instead of direct setChannel method
+        // Set channel using Controller events - MIDI Writer JS doesn't have ControlChangeEvent
+        // so we'll use channel parameter on the note events instead
+        let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
+        
+        // For drums, use channel 10 (9 in zero-based) as per MIDI standard
         if (instrument === 'drums') {
-          // For drums, set to channel 10 (9 in zero-based) using events
-          track.addEvent(new MidiWriter.ControlChangeEvent({
-            controlNumber: 32, // Bank select LSB
-            controlValue: 0,
-            channel: 9 // Channel 10 (zero-indexed)
-          }));
-        } else {
-          // For other instruments, use channels 1-3 (0-2)
-          track.addEvent(new MidiWriter.ControlChangeEvent({
-            controlNumber: 32, // Bank select LSB
-            controlValue: 0,
-            channel: i % 8 // Use channels 0-7 (avoid 9 which is for drums)
-          }));
+          channel = 9;
         }
         
         // Generate notes based on instrument type
@@ -112,7 +109,8 @@ export function useMidiExporter() {
             const event = new MidiWriter.NoteEvent({
               pitch: noteInfo.note,
               duration: noteInfo.duration,
-              velocity: 100
+              velocity: 100,
+              channel: channel // Set channel directly on note events
             });
             track.addEvent(event);
           });
