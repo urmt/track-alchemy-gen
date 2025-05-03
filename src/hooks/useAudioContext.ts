@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -46,12 +47,13 @@ export function useAudioContext() {
           if (existingContext) {
             // Only attempt to dispose if it's not already closed
             if (existingContext.state !== 'closed') {
-              // Fix: Use the close method on the AudioContext interface properly
+              // Fix: Only close the context if it's a standard AudioContext
               if (existingContext.rawContext) {
-                // Cast to AudioContext to access close method
-                const audioCtx = existingContext.rawContext as AudioContext;
-                if (typeof audioCtx.close === 'function') {
-                  await audioCtx.close();
+                // Type guard for AudioContext (not OfflineAudioContext)
+                const audioCtx = existingContext.rawContext as unknown;
+                // Check if it has a close method before calling it
+                if (audioCtx && typeof (audioCtx as AudioContext).close === 'function') {
+                  await (audioCtx as AudioContext).close();
                   console.log("Closed existing Tone.js context");
                 }
               }
@@ -189,10 +191,10 @@ export function useAudioContext() {
       // Force a context reset on error
       try {
         if (state.context && state.context.rawContext) {
-          // Cast to AudioContext to access close method
-          const audioCtx = state.context.rawContext as AudioContext;
-          if (typeof audioCtx.close === 'function') {
-            await audioCtx.close();
+          // Fix: Check if close method exists before calling
+          const audioCtx = state.context.rawContext as unknown;
+          if (audioCtx && typeof (audioCtx as AudioContext).close === 'function') {
+            await (audioCtx as AudioContext).close();
           }
         }
         console.log("Disposed failed audio context");
@@ -315,10 +317,10 @@ export function useAudioContext() {
         try {
           // Only attempt to dispose if it's not already closed
           if (state.context.state !== 'closed' && state.context.rawContext) {
-            // Cast to AudioContext to access close method
-            const audioCtx = state.context.rawContext as AudioContext;
-            if (typeof audioCtx.close === 'function') {
-              await audioCtx.close();
+            // Fix: Check if close method exists before calling
+            const audioCtx = state.context.rawContext as unknown;
+            if (audioCtx && typeof (audioCtx as AudioContext).close === 'function') {
+              await (audioCtx as AudioContext).close();
               console.log("Disposed old context during reset");
             }
           }
