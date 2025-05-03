@@ -83,16 +83,13 @@ export function useMidiExporter() {
           })
         );
 
-        // Add tempo as a separate event with the correct format
-        const tempoEvent = new MidiWriter.MetaEvent({
-          data: [0x51, 0x03], // Set tempo meta event
-          type: 'tempo',
-          tempo: trackSettings.bpm 
-        });
-        track.addEvent(tempoEvent);
+        // Set tempo correctly using a valid approach from the MidiWriter API
+        // Convert BPM to microseconds per quarter note (MPQN)
+        const mpqn = Math.round(60000000 / trackSettings.bpm);
+        // Add tempo event using the correct method from the library
+        track.setTempo(trackSettings.bpm);
         
-        // Set channel using Controller events - MIDI Writer JS doesn't have ControlChangeEvent
-        // so we'll use channel parameter on the note events instead
+        // Set channel using channel parameter on the note events
         let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
         
         // For drums, use channel 10 (9 in zero-based) as per MIDI standard
