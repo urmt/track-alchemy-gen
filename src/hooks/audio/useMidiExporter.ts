@@ -83,9 +83,13 @@ export function useMidiExporter() {
           })
         );
 
-        // Set tempo correctly using the proper method from the library
-        // This is the correct way to set tempo in midi-writer-js
-        track.setTempo(trackSettings.bpm);
+        // Calculate microseconds per quarter note (MPQN) for tempo
+        // MPQN = 60,000,000 / BPM
+        const mpqn = Math.round(60000000 / trackSettings.bpm);
+        
+        // Create a tempo event by directly passing bpm and mpqn values
+        // Fix for the TS2554 error - setTempo expects 2 arguments in this version
+        track.setTempo(trackSettings.bpm, mpqn);
         
         // Set channel using channel parameter on the note events
         let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
