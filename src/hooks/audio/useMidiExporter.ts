@@ -83,8 +83,12 @@ export function useMidiExporter() {
           })
         );
 
-        // Set tempo - use only a single call with the correct signature
-        track.setTempo(trackSettings.bpm);
+        // Setting tempo with MPQN (microseconds per quarter note)
+        // Convert BPM to MPQN: MPQN = 60,000,000 / BPM
+        const mpqn = Math.round(60000000 / trackSettings.bpm);
+        
+        // Add tempo event with the required microseconds per quarter note
+        track.addEvent(new MidiWriter.TempoEvent({ tempo: mpqn }));
         
         // Set channel using channel parameter on the note events
         let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
@@ -97,21 +101,19 @@ export function useMidiExporter() {
         // Generate notes based on instrument type
         const notesPattern = getNotesForInstrument(instrument);
         
-        // Wrap heavy computation in setTimeout to prevent UI freezes
-        setTimeout(() => {
-          // Repeat the pattern a few times
-          for (let bar = 0; bar < trackSettings.duration / 4; bar++) {
-            notesPattern.forEach(noteInfo => {
-              const event = new MidiWriter.NoteEvent({
-                pitch: noteInfo.note,
-                duration: noteInfo.duration,
-                velocity: 100,
-                channel: channel // Set channel directly on note events
-              });
-              track.addEvent(event);
+        // Generate all notes synchronously to ensure they're added to the track
+        // Repeat the pattern a few times
+        for (let bar = 0; bar < trackSettings.duration / 4; bar++) {
+          notesPattern.forEach(noteInfo => {
+            const event = new MidiWriter.NoteEvent({
+              pitch: noteInfo.note,
+              duration: noteInfo.duration,
+              velocity: 100,
+              channel: channel // Set channel directly on note events
             });
-          }
-        }, 0);
+            track.addEvent(event);
+          });
+        }
         
         tracks.push(track);
       });
