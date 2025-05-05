@@ -83,9 +83,8 @@ export function useMidiExporter() {
           })
         );
 
-        // Fix: Set tempo correctly - Need to pass both BPM and track
-        // The missing second argument was causing the build error
-        track.setTempo(trackSettings.bpm, track);
+        // Set tempo - use only a single call with the correct signature
+        track.setTempo(trackSettings.bpm);
         
         // Set channel using channel parameter on the note events
         let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
@@ -98,18 +97,21 @@ export function useMidiExporter() {
         // Generate notes based on instrument type
         const notesPattern = getNotesForInstrument(instrument);
         
-        // Repeat the pattern a few times
-        for (let bar = 0; bar < trackSettings.duration / 4; bar++) {
-          notesPattern.forEach(noteInfo => {
-            const event = new MidiWriter.NoteEvent({
-              pitch: noteInfo.note,
-              duration: noteInfo.duration,
-              velocity: 100,
-              channel: channel // Set channel directly on note events
+        // Wrap heavy computation in setTimeout to prevent UI freezes
+        setTimeout(() => {
+          // Repeat the pattern a few times
+          for (let bar = 0; bar < trackSettings.duration / 4; bar++) {
+            notesPattern.forEach(noteInfo => {
+              const event = new MidiWriter.NoteEvent({
+                pitch: noteInfo.note,
+                duration: noteInfo.duration,
+                velocity: 100,
+                channel: channel // Set channel directly on note events
+              });
+              track.addEvent(event);
             });
-            track.addEvent(event);
-          });
-        }
+          }
+        }, 0);
         
         tracks.push(track);
       });
