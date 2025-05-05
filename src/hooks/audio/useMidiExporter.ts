@@ -83,12 +83,9 @@ export function useMidiExporter() {
           })
         );
 
-        // Setting tempo with MPQN (microseconds per quarter note)
-        // Convert BPM to MPQN: MPQN = 60,000,000 / BPM
-        const mpqn = Math.round(60000000 / trackSettings.bpm);
-        
-        // Add tempo event with the required microseconds per quarter note
-        track.addEvent(new MidiWriter.TempoEvent({ tempo: mpqn }));
+        // Set tempo correctly using the proper method from the library
+        // This is the correct way to set tempo in midi-writer-js
+        track.setTempo(trackSettings.bpm);
         
         // Set channel using channel parameter on the note events
         let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
