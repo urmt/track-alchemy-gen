@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +19,7 @@ const Index = () => {
   const { toast } = useToast();
   const [showDebug, setShowDebug] = useState(false);
   const [resetInProgress, setResetInProgress] = useState(false);
+  const [downloadInProgress, setDownloadInProgress] = useState(false);
   
   // Set up audio context
   const audioContext = useAudioContext();
@@ -45,13 +47,25 @@ const Index = () => {
     duration: 16,
   });
   
+  // Memoize chord progression generation
+  const getChordProgression = useCallback((key: string, genre: string, mood: string) => {
+    return generateChordProgression(key, genre, mood);
+  }, []);
+  
+  // Compute disabled state for UI controls
+  const controlsDisabled = resetInProgress || trackAudio.isLoading || downloadInProgress;
+  
   // Handle reset audio system
   const handleResetAudioSystem = async () => {
     // Guard against multiple simultaneous reset operations
-    if (resetInProgress) return;
+    if (resetInProgress) {
+      console.log("Reset already in progress, ignoring request");
+      return;
+    }
     
     // Set reset flag
     setResetInProgress(true);
+    console.log("Starting audio system reset");
     
     sonnerToast("Resetting Audio System", {
       description: "Please wait while the audio system resets...",
@@ -97,6 +111,7 @@ const Index = () => {
     } finally {
       // Always reset flag, even if errors occur
       setResetInProgress(false);
+      console.log("Audio system reset complete");
     }
   };
   
@@ -115,6 +130,12 @@ const Index = () => {
       return;
     }
     
+    // Don't proceed if controls are disabled
+    if (controlsDisabled) {
+      console.log("Generate request ignored - controls disabled");
+      return;
+    }
+    
     try {
       sonnerToast("Generating Track", {
         description: "Creating your track...",
@@ -124,7 +145,7 @@ const Index = () => {
       await trackAudio.generateTrack(trackSettings);
       
       // Generate chord progression (just for display in this version)
-      const progression = generateChordProgression(
+      const progression = getChordProgression(
         trackSettings.key, 
         trackSettings.genre, 
         trackSettings.mood
@@ -164,6 +185,15 @@ const Index = () => {
   
   // Handle download track
   const handleDownloadTrack = async () => {
+    // Don't proceed if download is already in progress
+    if (downloadInProgress) {
+      console.log("Download already in progress, ignoring request");
+      return;
+    }
+    
+    setDownloadInProgress(true);
+    console.log("Starting WAV download");
+    
     try {
       const result = await trackAudio.downloadTrack();
       if (result.success) {
@@ -186,6 +216,9 @@ const Index = () => {
         dismissible: true,
         duration: 8000,
       });
+    } finally {
+      setDownloadInProgress(false);
+      console.log("WAV download process complete");
     }
   };
   
@@ -288,16 +321,21 @@ const Index = () => {
                 <div className="flex gap-2">
                   <Button 
                     onClick={handleGenerate}
-                    disabled={trackAudio.isLoading || resetInProgress}
-                    className="bg-studio-accent hover:bg-studio-highlight text-white"
+                    disabled={controlsDisabled}
+                    className="bg-studio-accent hover:bg-studio-highlight text-white relative"
                     type="button"
                   >
+                    {trackAudio.isLoading && 
+                      <span className="absolute inset-0 flex items-center justify-center bg-studio-accent bg-opacity-90">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      </span>
+                    }
                     Generate Track
                   </Button>
                   
                   <Button
                     onClick={handleResetAudioSystem}
-                    disabled={resetInProgress}
+                    disabled={controlsDisabled}
                     variant="outline"
                     className="flex items-center gap-1"
                     title="Reset audio system if you encounter playback problems"
@@ -311,7 +349,7 @@ const Index = () => {
                 <div className="flex gap-2">
                   <Button 
                     onClick={() => trackAudio.togglePlayback()}
-                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated || resetInProgress}
+                    disabled={controlsDisabled || !trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                   >
@@ -330,7 +368,7 @@ const Index = () => {
                   
                   <Button
                     onClick={handleDownloadMidi}
-                    disabled={!trackAudio.isTrackGenerated || resetInProgress}
+                    disabled={!trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                     title="Download as MIDI file (pattern only, no samples)"
@@ -341,11 +379,16 @@ const Index = () => {
                   
                   <Button
                     onClick={handleDownloadTrack}
-                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated || resetInProgress}
-                    className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
+                    disabled={controlsDisabled || !trackAudio.isTrackGenerated}
+                    className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white relative"
                     type="button"
                     title="Download as WAV audio file"
                   >
+                    {downloadInProgress && 
+                      <span className="absolute inset-0 flex items-center justify-center bg-studio-accent bg-opacity-90">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      </span>
+                    }
                     <Download className="w-4 h-4" />
                     <span>WAV</span>
                   </Button>
@@ -406,13 +449,15 @@ const Index = () => {
             <div className="text-sm text-muted-foreground">
               {resetInProgress
                 ? "Resetting audio system..." 
-                : trackAudio.isLoading 
-                  ? "Loading samples..." 
-                  : trackAudio.isPlaying 
-                    ? "Playing track" 
-                    : audioContext.isLoaded 
-                      ? "Ready" 
-                      : "Audio system initializing..."}
+                : downloadInProgress
+                  ? "Exporting track..."
+                  : trackAudio.isLoading 
+                    ? "Loading samples..." 
+                    : trackAudio.isPlaying 
+                      ? "Playing track" 
+                      : audioContext.isLoaded 
+                        ? "Ready" 
+                        : "Audio system initializing..."}
             </div>
           </div>
           

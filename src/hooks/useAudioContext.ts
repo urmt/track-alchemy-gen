@@ -42,6 +42,7 @@ export function useAudioContext() {
   const initializingRef = useRef<boolean>(false);
   const maxRetries = 3;
   const retryRef = useRef<number>(0);
+  const resetInProgressRef = useRef<boolean>(false);
 
   // Initialize audio context - with improved handling for invalid state errors
   useEffect(() => {
@@ -191,7 +192,7 @@ export function useAudioContext() {
       
       if (state.context) {
         // Try to resume the context directly
-        await state.context.resume();
+        await withTimeout(state.context.resume(), 2000);
         
         setState(prev => ({ ...prev, isStarted: true }));
         console.log("Audio context started successfully");
@@ -212,7 +213,7 @@ export function useAudioContext() {
           // Fix: Check if close method exists before calling
           const audioCtx = state.context.rawContext as unknown;
           if (audioCtx && typeof (audioCtx as AudioContext).close === 'function') {
-            await (audioCtx as AudioContext).close();
+            await withTimeout((audioCtx as AudioContext).close(), 1000);
           }
         }
         console.log("Disposed failed audio context");
@@ -309,10 +310,16 @@ export function useAudioContext() {
   
   // Reset context - completely rebuild the audio context with timeout protection
   const resetContext = useCallback(async () => {
+    // Guard against concurrent resets
+    if (resetInProgressRef.current) {
+      console.log("Reset already in progress, skipping duplicate request");
+      return false;
+    }
+    
+    resetInProgressRef.current = true;
+    console.log("Starting audio context reset");
+    
     try {
-      console.log("Resetting audio context");
-      initializingRef.current = true;
-      
       // Mark as loading
       setState(prev => ({
         ...prev,
@@ -416,7 +423,8 @@ export function useAudioContext() {
       }));
       return false;
     } finally {
-      initializingRef.current = false;
+      resetInProgressRef.current = false;
+      console.log("Audio context reset process complete");
     }
   }, [state.context]);
 

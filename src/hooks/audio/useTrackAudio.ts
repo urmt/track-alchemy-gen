@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { InstrumentType, InstrumentTrack, TrackSettings, UseTrackAudioProps } from './types';
@@ -15,6 +16,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generationInProgressRef = useRef(false);
+  const playbackInProgressRef = useRef(false);
   
   // Using a ref for instruments to maintain references across renders
   const instrumentsRef = useRef<Record<InstrumentType, InstrumentTrack>>({
@@ -127,6 +129,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     }
     
     generationInProgressRef.current = true;
+    console.log("Starting track regeneration from saved state");
     
     try {
       if (!isStarted) {
@@ -232,6 +235,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     } finally {
       setIsLoading(false);
       generationInProgressRef.current = false;
+      console.log("Track regeneration process complete");
     }
   }, [isStarted, isPlaying, masterVolume, startContext, setupInstrument, trackSettings, startMeterMonitoring, setIsTrackGenerated, getContextId, resetContext]);
 
@@ -259,6 +263,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     }
     
     generationInProgressRef.current = true;
+    console.log("Starting track generation with settings:", settings);
     
     try {
       if (!isStarted) {
@@ -287,6 +292,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
       
       // Update track settings
       setTrackSettings(settings);
+      
+      // Yield to UI before intensive operations
+      await new Promise(resolve => setTimeout(resolve, 10));
       
       // Clean up any existing players and nodes
       Object.values(instrumentsRef.current).forEach(instrument => {
@@ -369,76 +377,119 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     } finally {
       setIsLoading(false);
       generationInProgressRef.current = false;
+      console.log("Track generation process complete");
     }
   }, [isStarted, isPlaying, masterVolume, startContext, setTrackSettings, setupInstrument, startMeterMonitoring, setIsTrackGenerated, getContextId, resetContext]);
 
   // Fixed toggle playback function with protection
   const togglePlayback = useCallback(async () => {
-    if (!isStarted) {
-      try {
-        await startContext();
-      } catch (err) {
-        console.error("Failed to start context for playback:", err);
-        setError("Failed to start audio context. Please try again.");
-        return;
-      }
+    // Prevent concurrent playback operations
+    if (playbackInProgressRef.current) {
+      console.log("Playback operation already in progress, skipping");
+      return;
     }
     
-    if (isPlaying) {
-      // Stop all instruments
-      Object.values(instrumentsRef.current).forEach(instrument => {
-        if (instrument.player) {
-          try {
-            instrument.player.stop();
-          } catch (err) {
-            console.error(`Error stopping ${instrument.id}:`, err);
+    playbackInProgressRef.current = true;
+    console.log("Toggle playback requested, current state:", isPlaying ? "playing" : "stopped");
+    
+    try {
+      if (!isStarted) {
+        try {
+          await startContext();
+        } catch (err) {
+          console.error("Failed to start context for playback:", err);
+          setError("Failed to start audio context. Please try again.");
+          return;
+        }
+      }
+      
+      if (isPlaying) {
+        // Stop all instruments
+        Object.values(instrumentsRef.current).forEach(instrument => {
+          if (instrument.player) {
+            try {
+              instrument.player.stop();
+            } catch (err) {
+              console.error(`Error stopping ${instrument.id}:`, err);
+            }
+          }
+        });
+        setIsPlaying(false);
+        console.log("Playback stopped");
+      } else {
+        // Start all instruments
+        let playedSuccessfully = false;
+        let errors = [];
+        
+        // First recreate any missing players if needed
+        for (const instrument of Object.values(instrumentsRef.current)) {
+          if (!instrument.player && instrument.samplePath && instrument.loadingState === 'loaded') {
+            try {
+              console.log(`Recreating player for ${instrument.id}`);
+              // Recreate the player if needed
+              await setupInstrument(
+                instrument.id as InstrumentType, 
+                instrument, 
+                masterVolume, 
+                setInstruments,
+                setError,
+                getContextId ? getContextId() : null
+              );
+            } catch (err) {
+              console.error(`Error recreating player for ${instrument.id}:`, err);
+            }
           }
         }
-      });
-      setIsPlaying(false);
-    } else {
-      // Start all instruments
-      let playedSuccessfully = false;
-      let errors = [];
-      
-      for (const instrument of Object.values(instrumentsRef.current)) {
-        if (instrument.player && instrument.loadingState === 'loaded') {
-          try {
-            instrument.player.start();
-            playedSuccessfully = true;
-          } catch (err) {
-            console.error(`Error starting ${instrument.id}:`, err);
-            errors.push(`${instrument.id}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          }
-        } else if (instrument.player && instrument.loadingState === 'error') {
-          try {
-            // For error state instruments with fallback oscillators
-            if ('start' in instrument.player) {
+        
+        // Yield to UI before starting playback
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        // Now try to start all players
+        for (const instrument of Object.values(instrumentsRef.current)) {
+          if (instrument.player && instrument.loadingState === 'loaded') {
+            try {
               instrument.player.start();
               playedSuccessfully = true;
+            } catch (err) {
+              console.error(`Error starting ${instrument.id}:`, err);
+              errors.push(`${instrument.id}: ${err instanceof Error ? err.message : 'Unknown error'}`);
             }
-          } catch (err) {
-            console.error(`Error starting fallback for ${instrument.id}:`, err);
+          } else if (instrument.player && instrument.loadingState === 'error') {
+            try {
+              // For error state instruments with fallback oscillators
+              if ('start' in instrument.player) {
+                instrument.player.start();
+                playedSuccessfully = true;
+              }
+            } catch (err) {
+              console.error(`Error starting fallback for ${instrument.id}:`, err);
+            }
+          }
+        }
+        
+        setIsPlaying(playedSuccessfully);
+        console.log("Playback " + (playedSuccessfully ? "started successfully" : "failed to start"));
+        
+        if (!playedSuccessfully) {
+          const errorMsg = errors.length > 0 
+            ? `Playback failed: ${errors.join(', ')}`
+            : "Could not play any instruments. Try regenerating the track.";
+          setError(errorMsg);
+          
+          // Try reset context on playback failure
+          if (resetContext) {
+            console.log("Attempting to reset audio context after playback failure");
+            resetContext().catch(resetErr => console.error("Context reset failed:", resetErr));
           }
         }
       }
-      
-      setIsPlaying(playedSuccessfully);
-      
-      if (!playedSuccessfully) {
-        const errorMsg = errors.length > 0 
-          ? `Playback failed: ${errors.join(', ')}`
-          : "Could not play any instruments. Try regenerating the track.";
-        setError(errorMsg);
-        
-        // Try reset context on playback failure
-        if (resetContext) {
-          console.log("Attempting to reset audio context after playback failure");
-          resetContext().catch(resetErr => console.error("Context reset failed:", resetErr));
-        }
-      }
+    } catch (err) {
+      console.error("Playback toggle error:", err);
+      setError(`Playback error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      playbackInProgressRef.current = false;
     }
-  }, [isPlaying, isStarted, startContext, resetContext]);
+  }, [isPlaying, isStarted, masterVolume, startContext, resetContext, setupInstrument, getContextId, setInstruments]);
   
   // Wrapper for setInstrumentVolume to include instrumentsRef
   const setInstrumentVolume = useCallback((instrumentId: InstrumentType, volumeDb: number) => {
@@ -447,11 +498,13 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
   
   // Wrapper for downloadTrack to include state
   const handleDownloadTrack = useCallback(async () => {
+    console.log("Starting WAV download process");
     return downloadTrack(isTrackGenerated, instrumentsRef, trackSettings);
   }, [downloadTrack, isTrackGenerated, trackSettings]);
   
   // Add handler for MIDI download
   const handleDownloadMidi = useCallback(() => {
+    console.log("Starting MIDI download process");
     return downloadMidiTrack(isTrackGenerated, trackSettings);
   }, [downloadMidiTrack, isTrackGenerated, trackSettings]);
 
@@ -465,15 +518,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     masterMeterValue,
     generateTrack,
     togglePlayback,
-    setInstrumentVolume: setVolume ? (instrumentId: InstrumentType, volumeDb: number) => {
-      setVolume(instrumentsRef, setInstruments, instrumentId, volumeDb);
-    } : undefined,
+    setInstrumentVolume,
     setTrackSettings,
-    downloadTrack: downloadTrack ? async () => {
-      return downloadTrack(isTrackGenerated, instrumentsRef, trackSettings);
-    } : undefined,
-    downloadMidi: downloadMidiTrack ? () => {
-      return downloadMidiTrack(isTrackGenerated, trackSettings);
-    } : undefined,
+    downloadTrack: handleDownloadTrack,
+    downloadMidi: handleDownloadMidi,
   };
 }

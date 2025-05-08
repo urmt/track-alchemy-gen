@@ -1,15 +1,26 @@
 
 import * as Tone from 'tone';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { InstrumentTrack, TrackSettings, TrackDownloadResult } from './types';
 
 export function useAudioExporter() {
+  // Add an in-progress ref to prevent concurrent exports
+  const exportInProgressRef = useRef<boolean>(false);
+  
   // Function to download the current track
   const downloadTrack = useCallback(async (
     isTrackGenerated: boolean,
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     trackSettings: TrackSettings
   ): Promise<TrackDownloadResult> => {
+    // Guard against concurrent operations
+    if (exportInProgressRef.current) {
+      console.log("Export already in progress, ignoring request");
+      return { success: false, error: "Export already in progress" };
+    }
+    
+    exportInProgressRef.current = true;
+    
     try {
       if (!isTrackGenerated) {
         return { success: false, error: "No track has been generated yet" };
@@ -61,16 +72,28 @@ export function useAudioExporter() {
         }
       }
       
+      // Yield to UI before intensive rendering
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
       // Render the full track
       console.log(`Rendering ${trackDuration} seconds of audio...`);
       const buffer = await offlineContext.render();
       console.log("Rendering complete.");
       
-      // Convert the buffer to a WAV file
-      const wav = toWav(buffer);
+      // Yield to UI again before encoding
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Convert the buffer to a WAV file - move heavy processing off the main thread
+      let wav: Uint8Array;
+      await new Promise<void>(resolve => {
+        setTimeout(() => {
+          wav = toWav(buffer);
+          resolve();
+        }, 0);
+      });
       
       // Create a download link
-      const blob = new Blob([wav], { type: 'audio/wav' });
+      const blob = new Blob([wav!], { type: 'audio/wav' });
       const url = URL.createObjectURL(blob);
       
       // Create a filename based on track settings
@@ -84,10 +107,8 @@ export function useAudioExporter() {
       a.click();
       document.body.removeChild(a);
       
-      // Clean up the URL
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, 100);
+      // Clean up the URL immediately
+      URL.revokeObjectURL(url);
       
       console.log("Track downloaded successfully");
       return { success: true };
@@ -95,7 +116,8 @@ export function useAudioExporter() {
       console.error("Error downloading track:", err);
       return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
     } finally {
-      // Restore the main context
+      // Always reset the in-progress flag and restore the main context
+      exportInProgressRef.current = false;
       Tone.setContext(Tone.getContext());
     }
   }, []);
