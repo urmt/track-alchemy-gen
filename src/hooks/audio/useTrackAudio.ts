@@ -1,7 +1,3 @@
-
-// This file is too long for a single write. I'll focus on the key methods that need fixes.
-// I'm only updating critical components that affect functionality.
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { InstrumentType, InstrumentTrack, TrackSettings, UseTrackAudioProps } from './types';
@@ -122,7 +118,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     };
   }, [isPlaying]);
   
-  // Function to reload track from saved state
+  // Function to reload track from saved state - with improved protection
   const regenerateTrackFromSavedState = useCallback(async () => {
     // Prevent concurrent regeneration
     if (generationInProgressRef.current) {
@@ -132,22 +128,19 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     
     generationInProgressRef.current = true;
     
-    if (!isStarted) {
-      try {
-        await startContext();
-      } catch (err) {
-        console.error("Failed to start context:", err);
-        setError("Failed to start audio context. Please try again.");
-        generationInProgressRef.current = false;
-        return;
-      }
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    
     try {
-      Tone.Transport.bpm.value = trackSettings.bpm;
+      if (!isStarted) {
+        try {
+          await startContext();
+        } catch (err) {
+          console.error("Failed to start context:", err);
+          setError("Failed to start audio context. Please try again.");
+          return;
+        }
+      }
+      
+      setIsLoading(true);
+      setError(null);
       
       // Stop any playing audio first
       if (isPlaying) {
@@ -224,12 +217,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
       
       // Always start meter monitoring, even if generation wasn't fully successful
       startMeterMonitoring(instrumentsRef, setInstruments);
-      
-      setIsLoading(false);
     } catch (err) {
       console.error("Failed to regenerate track:", err);
       setError("Failed to regenerate track. Please try again.");
-      setIsLoading(false);
       
       // Still start meter monitoring even with error
       startMeterMonitoring(instrumentsRef, setInstruments);
@@ -239,9 +229,10 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
         console.log("Attempting to reset audio context after regeneration failure");
         resetContext().catch(resetErr => console.error("Context reset failed:", resetErr));
       }
+    } finally {
+      setIsLoading(false);
+      generationInProgressRef.current = false;
     }
-    
-    generationInProgressRef.current = false;
   }, [isStarted, isPlaying, masterVolume, startContext, setupInstrument, trackSettings, startMeterMonitoring, setIsTrackGenerated, getContextId, resetContext]);
 
   // Load track state from session storage on initial load
@@ -259,7 +250,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     }
   }, [isTrackGenerated, startMeterMonitoring]);
 
-  // Generate a new track with improved error handling
+  // Generate a new track with improved error handling - with generation flag protection
   const generateTrack = useCallback(async (settings: TrackSettings) => {
     // Prevent concurrent generation
     if (generationInProgressRef.current) {
@@ -363,12 +354,9 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
       
       // Always start meter monitoring
       startMeterMonitoring(instrumentsRef, setInstruments);
-      
-      setIsLoading(false);
     } catch (err) {
       console.error("Failed to generate track:", err);
       setError("Failed to generate track. Please try again.");
-      setIsLoading(false);
       
       // Still start meter monitoring
       startMeterMonitoring(instrumentsRef, setInstruments);
@@ -379,11 +367,12 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
         resetContext().catch(resetErr => console.error("Context reset failed:", resetErr));
       }
     } finally {
+      setIsLoading(false);
       generationInProgressRef.current = false;
     }
   }, [isStarted, isPlaying, masterVolume, startContext, setTrackSettings, setupInstrument, startMeterMonitoring, setIsTrackGenerated, getContextId, resetContext]);
 
-  // Fixed toggle playback function
+  // Fixed toggle playback function with protection
   const togglePlayback = useCallback(async () => {
     if (!isStarted) {
       try {
@@ -419,7 +408,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
             playedSuccessfully = true;
           } catch (err) {
             console.error(`Error starting ${instrument.id}:`, err);
-            errors.push(`${instrument.id}: ${err.message || 'Unknown error'}`);
+            errors.push(`${instrument.id}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         } else if (instrument.player && instrument.loadingState === 'error') {
           try {
@@ -476,9 +465,15 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     masterMeterValue,
     generateTrack,
     togglePlayback,
-    setInstrumentVolume,
+    setInstrumentVolume: setVolume ? (instrumentId: InstrumentType, volumeDb: number) => {
+      setVolume(instrumentsRef, setInstruments, instrumentId, volumeDb);
+    } : undefined,
     setTrackSettings,
-    downloadTrack: handleDownloadTrack,
-    downloadMidi: handleDownloadMidi,
+    downloadTrack: downloadTrack ? async () => {
+      return downloadTrack(isTrackGenerated, instrumentsRef, trackSettings);
+    } : undefined,
+    downloadMidi: downloadMidiTrack ? () => {
+      return downloadMidiTrack(isTrackGenerated, trackSettings);
+    } : undefined,
   };
 }

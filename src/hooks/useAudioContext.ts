@@ -10,6 +10,24 @@ export interface AudioContextState {
   masterVolume: Tone.Volume | null;
 }
 
+/**
+ * Helper function to wrap promises with a timeout
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, rej) =>
+    (timer = setTimeout(() => rej(new Error('Operation timed out')), ms))
+  );
+  try {
+    const result = await Promise.race([promise, timeout]) as T;
+    clearTimeout(timer!);
+    return result;
+  } catch (error) {
+    clearTimeout(timer!);
+    throw error;
+  }
+}
+
 export function useAudioContext() {
   const [state, setState] = useState<AudioContextState>({
     context: null,
@@ -72,7 +90,7 @@ export function useAudioContext() {
           
           // Initialize a new Tone context with this audio context
           Tone.setContext(new Tone.Context(audioContext));
-          await Tone.loaded();
+          await withTimeout(Tone.loaded(), 2000);
           
           const toneContext = Tone.getContext();
           
@@ -289,7 +307,7 @@ export function useAudioContext() {
     }
   }, [state.isStarted, state.context, startContext]);
   
-  // Reset context - completely rebuild the audio context
+  // Reset context - completely rebuild the audio context with timeout protection
   const resetContext = useCallback(async () => {
     try {
       console.log("Resetting audio context");
@@ -312,7 +330,7 @@ export function useAudioContext() {
         masterVolumeRef.current = null;
       }
       
-      // Close existing context
+      // Close existing context with timeout protection
       if (state.context) {
         try {
           // Only attempt to dispose if it's not already closed
@@ -320,12 +338,13 @@ export function useAudioContext() {
             // Fix: Check if close method exists before calling
             const audioCtx = state.context.rawContext as unknown;
             if (audioCtx && typeof (audioCtx as AudioContext).close === 'function') {
-              await (audioCtx as AudioContext).close();
+              await withTimeout((audioCtx as AudioContext).close(), 1500);
               console.log("Disposed old context during reset");
             }
           }
         } catch (err) {
-          console.warn("Error disposing old context:", err);
+          console.warn("Error or timeout disposing old context (continuing anyway):", err);
+          // Continue despite error - we'll create a new context anyway
         }
       }
       
@@ -344,14 +363,16 @@ export function useAudioContext() {
       // Short delay to ensure cleanup
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Create new AudioContext directly 
+      // Create new AudioContext directly with timeout protection
       try {
         // Create a new Web Audio context
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         
         // Initialize a new Tone context with this audio context
         Tone.setContext(new Tone.Context(audioContext));
-        await Tone.loaded();
+        
+        // Use timeout to prevent hanging
+        await withTimeout(Tone.loaded(), 2000);
         
         const newContext = Tone.getContext();
         

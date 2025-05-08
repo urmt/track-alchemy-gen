@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -18,6 +17,7 @@ import SampleManager from "@/components/SampleManager";
 const Index = () => {
   const { toast } = useToast();
   const [showDebug, setShowDebug] = useState(false);
+  const [resetInProgress, setResetInProgress] = useState(false);
   
   // Set up audio context
   const audioContext = useAudioContext();
@@ -47,6 +47,12 @@ const Index = () => {
   
   // Handle reset audio system
   const handleResetAudioSystem = async () => {
+    // Guard against multiple simultaneous reset operations
+    if (resetInProgress) return;
+    
+    // Set reset flag
+    setResetInProgress(true);
+    
     sonnerToast("Resetting Audio System", {
       description: "Please wait while the audio system resets...",
       duration: 3000,
@@ -88,6 +94,9 @@ const Index = () => {
           onClick: () => window.location.reload()
         }
       });
+    } finally {
+      // Always reset flag, even if errors occur
+      setResetInProgress(false);
     }
   };
   
@@ -279,7 +288,7 @@ const Index = () => {
                 <div className="flex gap-2">
                   <Button 
                     onClick={handleGenerate}
-                    disabled={trackAudio.isLoading}
+                    disabled={trackAudio.isLoading || resetInProgress}
                     className="bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                   >
@@ -288,20 +297,21 @@ const Index = () => {
                   
                   <Button
                     onClick={handleResetAudioSystem}
+                    disabled={resetInProgress}
                     variant="outline"
                     className="flex items-center gap-1"
                     title="Reset audio system if you encounter playback problems"
                     type="button"
                   >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Reset Audio</span>
+                    <RefreshCw className={`w-4 h-4 ${resetInProgress ? 'animate-spin' : ''}`} />
+                    <span>{resetInProgress ? 'Resetting...' : 'Reset Audio'}</span>
                   </Button>
                 </div>
                 
                 <div className="flex gap-2">
                   <Button 
                     onClick={() => trackAudio.togglePlayback()}
-                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
+                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated || resetInProgress}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                   >
@@ -320,7 +330,7 @@ const Index = () => {
                   
                   <Button
                     onClick={handleDownloadMidi}
-                    disabled={!trackAudio.isTrackGenerated}
+                    disabled={!trackAudio.isTrackGenerated || resetInProgress}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                     title="Download as MIDI file (pattern only, no samples)"
@@ -331,7 +341,7 @@ const Index = () => {
                   
                   <Button
                     onClick={handleDownloadTrack}
-                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated}
+                    disabled={trackAudio.isLoading || !trackAudio.isTrackGenerated || resetInProgress}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                     title="Download as WAV audio file"
@@ -394,13 +404,15 @@ const Index = () => {
             
             {/* Status Text */}
             <div className="text-sm text-muted-foreground">
-              {trackAudio.isLoading 
-                ? "Loading samples..." 
-                : trackAudio.isPlaying 
-                  ? "Playing track" 
-                  : audioContext.isLoaded 
-                    ? "Ready" 
-                    : "Audio system initializing..."}
+              {resetInProgress
+                ? "Resetting audio system..." 
+                : trackAudio.isLoading 
+                  ? "Loading samples..." 
+                  : trackAudio.isPlaying 
+                    ? "Playing track" 
+                    : audioContext.isLoaded 
+                      ? "Ready" 
+                      : "Audio system initializing..."}
             </div>
           </div>
           
