@@ -38,29 +38,29 @@ export function useMidiExporter() {
         switch (instrument) {
           case 'drums':
             return [
-              { note: 'C2', duration: '4' }, // Kick
-              { note: 'D2', duration: '8' }, // Snare
-              { note: 'F#2', duration: '16' }, // Hi-hat
-              { note: 'D2', duration: '8' }, // Snare
+              { pitch: 'C2', duration: '4' }, // Kick
+              { pitch: 'D2', duration: '8' }, // Snare
+              { pitch: 'F#2', duration: '16' }, // Hi-hat
+              { pitch: 'D2', duration: '8' }, // Snare
             ];
           case 'bass':
             return [
-              { note: notes[0].replace('4', '2'), duration: '4' },
-              { note: notes[2].replace('4', '2'), duration: '4' },
-              { note: notes[0].replace('4', '2'), duration: '2' },
+              { pitch: notes[0].replace('4', '2'), duration: '4' },
+              { pitch: notes[2].replace('4', '2'), duration: '4' },
+              { pitch: notes[0].replace('4', '2'), duration: '2' },
             ];
           case 'guitar':
             return [
-              { note: [notes[0], notes[2]], duration: '4' },
-              { note: [notes[1], notes[3]], duration: '4' },
-              { note: [notes[0], notes[2]], duration: '2' },
+              { pitch: [notes[0], notes[2]], duration: '4' },
+              { pitch: [notes[1], notes[3]], duration: '4' },
+              { pitch: [notes[0], notes[2]], duration: '2' },
             ];
           case 'keys':
             return [
-              { note: notes, duration: '1' },
+              { pitch: notes, duration: '1' },
             ];
           default:
-            return [{ note: 'C4', duration: '4' }];
+            return [{ pitch: 'C4', duration: '4' }];
         }
       };
 
@@ -92,12 +92,8 @@ export function useMidiExporter() {
         track.setTempo(trackSettings.bpm, mpqn);
         
         // Set channel using channel parameter on the note events
-        let channel = i % 8; // Use channels 0-7 (avoid 9 which is for drums)
-        
         // For drums, use channel 10 (9 in zero-based) as per MIDI standard
-        if (instrument === 'drums') {
-          channel = 9;
-        }
+        let channel = instrument === 'drums' ? 9 : i % 8;
         
         // Generate notes based on instrument type
         const notesPattern = getNotesForInstrument(instrument);
@@ -107,7 +103,7 @@ export function useMidiExporter() {
         for (let bar = 0; bar < trackSettings.duration / 4; bar++) {
           notesPattern.forEach(noteInfo => {
             const event = new MidiWriter.NoteEvent({
-              pitch: noteInfo.note,
+              pitch: noteInfo.pitch,
               duration: noteInfo.duration,
               velocity: 100,
               channel: channel // Set channel directly on note events
