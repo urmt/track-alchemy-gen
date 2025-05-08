@@ -72,7 +72,7 @@ const Index = () => {
       duration: 3000,
     });
     
-    // Stop any playing audio
+    // Stop any playing audio first
     if (trackAudio.isPlaying) {
       await trackAudio.togglePlayback();
     }
