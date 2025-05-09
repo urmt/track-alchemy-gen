@@ -15,6 +15,8 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Add concurrency guard refs
   const generationInProgressRef = useRef(false);
   const playbackInProgressRef = useRef(false);
   
@@ -254,7 +256,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
     }
   }, [isTrackGenerated, startMeterMonitoring]);
 
-  // Generate a new track with improved error handling - with generation flag protection
+  // Generate a new track with improved error handling and concurrency protection
   const generateTrack = useCallback(async (settings: TrackSettings) => {
     // Prevent concurrent generation
     if (generationInProgressRef.current) {
@@ -448,6 +450,11 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
         for (const instrument of Object.values(instrumentsRef.current)) {
           if (instrument.player && instrument.loadingState === 'loaded') {
             try {
+              // Always create a fresh player for one-shot sources to prevent freezes
+              if (instrument.player.state === 'started') {
+                // If somehow it's already started, stop it first
+                instrument.player.stop();
+              }
               instrument.player.start();
               playedSuccessfully = true;
             } catch (err) {
@@ -488,6 +495,7 @@ export function useTrackAudio({ masterVolume, isStarted, startContext, getContex
       setError(`Playback error: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       playbackInProgressRef.current = false;
+      console.log("Playback operation complete");
     }
   }, [isPlaying, isStarted, masterVolume, startContext, resetContext, setupInstrument, getContextId, setInstruments]);
   

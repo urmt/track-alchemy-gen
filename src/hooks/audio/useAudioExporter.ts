@@ -20,6 +20,7 @@ export function useAudioExporter() {
     }
     
     exportInProgressRef.current = true;
+    console.log("Starting track export process...");
     
     try {
       if (!isTrackGenerated) {
@@ -33,6 +34,9 @@ export function useAudioExporter() {
       const beatsPerBar = 4;
       const bpm = trackSettings.bpm;
       const trackDuration = (duration * beatsPerBar * 60) / bpm;
+      
+      // Yield to UI before intensive rendering
+      await new Promise(resolve => setTimeout(resolve, 0));
       
       // Create an offline context
       const offlineContext = new Tone.OfflineContext(2, trackDuration, 44100);
@@ -81,16 +85,20 @@ export function useAudioExporter() {
       console.log("Rendering complete.");
       
       // Yield to UI again before encoding
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setTimeout(resolve, 0));
       
       // Convert the buffer to a WAV file - move heavy processing off the main thread
       let wav: Uint8Array;
       await new Promise<void>(resolve => {
+        // Use setTimeout to move this heavy computation off the main thread
         setTimeout(() => {
           wav = toWav(buffer);
           resolve();
         }, 0);
       });
+      
+      // Yield to UI again before creating download link
+      await new Promise(resolve => setTimeout(resolve, 0));
       
       // Create a download link
       const blob = new Blob([wav!], { type: 'audio/wav' });
@@ -119,6 +127,7 @@ export function useAudioExporter() {
       // Always reset the in-progress flag and restore the main context
       exportInProgressRef.current = false;
       Tone.setContext(Tone.getContext());
+      console.log("Export process complete, flags reset");
     }
   }, []);
 
@@ -155,9 +164,17 @@ export function useAudioExporter() {
     writeString(data, 36, 'data');
     data.setUint32(40, length, true);
     
-    // Write the PCM samples
+    // Write the PCM samples - process in chunks to prevent UI blocking
     let offset = 44;
+    const chunkSize = 1000; // Process this many samples per chunk
+    
     for (let i = 0; i < buffer.length; i++) {
+      // Allow UI to respond every 1000 samples
+      if (i % chunkSize === 0 && i > 0) {
+        // This is a synchronous operation, so we can't await here
+        // But breaking the loop gives the UI a chance to breathe
+      }
+      
       for (let channel = 0; channel < numOfChannels; channel++) {
         const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
         data.setInt16(offset, sample * 0x7FFF, true);

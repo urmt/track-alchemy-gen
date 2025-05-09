@@ -16,7 +16,8 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         masterAnalyserRef.current.dispose();
       }
       
-      const analyser = new Tone.Analyser('waveform', 128);
+      // Create level analyser for more efficient meter readings
+      const analyser = new Tone.Analyser('level', 128);
       masterVolume.connect(analyser);
       masterAnalyserRef.current = analyser;
       console.log("Master analyser connected");
@@ -31,7 +32,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     };
   }, []);
 
-  // Start meter monitoring - always run regardless of playback state
+  // Start meter monitoring - responds to isPlaying changes
   const startMeterMonitoring = useCallback((
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>
@@ -42,29 +43,18 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       meterIntervalRef.current = null;
     }
     
-    console.log("Starting meter monitoring");
+    console.log("Starting meter monitoring, playback state:", isPlaying ? "playing" : "stopped");
     
     // Set up a new interval for meter updates
     meterIntervalRef.current = window.setInterval(() => {
-      let hasActiveMeters = false;
-      
       // Update each instrument meter
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.analyser) {
           try {
-            const waveform = instrument.analyser.getValue();
-            // Calculate RMS volume
-            const rms = Math.sqrt(
-              (waveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
-              waveform.length
-            );
-            
-            // Convert to a better visual range (0-100)
-            const meterValue = Math.min(100, Math.max(0, rms * 400)); // Increased multiplier for better visibility
-            
-            if (meterValue > 1) {
-              hasActiveMeters = true;
-            }
+            // For level analysers, getValue() returns a single value in a Float32Array
+            const level = instrument.analyser.getValue() as Float32Array;
+            // Get the first value and convert to a reasonable meter scale (0-100)
+            const meterValue = Math.min(100, Math.max(0, level[0] * 200));
             
             // Only update if there's a significant change to reduce rerenders
             const currentValue = instrumentsRef.current[instrument.id].meterValue;
@@ -95,18 +85,10 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       // Update master meter
       if (masterAnalyserRef.current) {
         try {
-          const masterWaveform = masterAnalyserRef.current.getValue();
-          const masterRms = Math.sqrt(
-            (masterWaveform as Float32Array).reduce((sum, val) => sum + val * val, 0) / 
-            masterWaveform.length
-          );
-          // Increased multiplier for better visibility
-          const masterMeterVal = Math.min(100, Math.max(0, masterRms * 400));
-          
-          if (masterMeterVal > 1) {
-            hasActiveMeters = true;
-          }
-          
+          // For level analysers, getValue() returns a single value in a Float32Array
+          const masterLevel = masterAnalyserRef.current.getValue() as Float32Array;
+          // Get the first value and convert to a reasonable meter scale (0-100)
+          const masterMeterVal = Math.min(100, Math.max(0, masterLevel[0] * 200));
           setMasterMeterValue(masterMeterVal);
         } catch (err) {
           console.warn("Error reading master meter:", err);
@@ -117,12 +99,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       } else if (masterMeterValue > 0) {
         setMasterMeterValue(0);
       }
-      
-      // Log activity periodically for debugging
-      if (hasActiveMeters) {
-        console.log("Meter activity detected");
-      }
-    }, 50); // Update every 50ms for smooth meter movement
+    }, 100); // Update every 100ms for responsive but efficient meter movement
     
     // Return cleanup function
     return () => {

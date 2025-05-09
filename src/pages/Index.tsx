@@ -47,7 +47,7 @@ const Index = () => {
     duration: 16,
   });
   
-  // Memoize chord progression generation
+  // Memoize chord progression generation to prevent unnecessary recomputation
   const getChordProgression = useCallback((key: string, genre: string, mood: string) => {
     return generateChordProgression(key, genre, mood);
   }, []);
@@ -55,7 +55,7 @@ const Index = () => {
   // Compute disabled state for UI controls
   const controlsDisabled = resetInProgress || trackAudio.isLoading || downloadInProgress;
   
-  // Handle reset audio system
+  // Handle reset audio system with concurrency guard
   const handleResetAudioSystem = async () => {
     // Guard against multiple simultaneous reset operations
     if (resetInProgress) {
@@ -72,32 +72,33 @@ const Index = () => {
       duration: 3000,
     });
     
-    // Stop any playing audio first
-    if (trackAudio.isPlaying) {
-      await trackAudio.togglePlayback();
-    }
-    
     try {
-      // Reset the audio context
-      const success = await audioContext.resetContext();
-      
-      if (success) {
-        // Clear session storage
-        sessionStorage.removeItem('trackAlchemyState');
-        
-        sonnerToast("Audio System Reset", {
-          description: "Audio system has been reset. You can now generate a new track.",
-          duration: 4000,
-        });
-        
-        // Small delay to ensure context is fully reset
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Try to generate a new track with defaults
-        await trackAudio.generateTrack(trackSettings);
-      } else {
-        throw new Error("Reset operation failed");
+      // Stop any playing audio first
+      if (trackAudio.isPlaying) {
+        await trackAudio.togglePlayback();
       }
+      
+      // Reset the audio context with timeout protection
+      const resetPromise = audioContext.resetContext();
+      const success = await Promise.race([
+        resetPromise,
+        new Promise<false>(resolve => setTimeout(() => resolve(false), 2000))
+      ]);
+      
+      if (success === false) {
+        throw new Error("Reset operation timed out");
+      }
+      
+      // Clear session storage
+      sessionStorage.removeItem('trackAlchemyState');
+      
+      sonnerToast("Audio System Reset", {
+        description: "Audio system has been reset. You can now generate a new track.",
+        duration: 4000,
+      });
+      
+      // Small delay to ensure context is fully reset
+      await new Promise(resolve => setTimeout(resolve, 300));
     } catch (error) {
       console.error("Reset failed:", error);
       sonnerToast("Reset Failed", {
@@ -115,7 +116,7 @@ const Index = () => {
     }
   };
   
-  // Handle generate button click
+  // Handle generate button click with improved concurrency protection
   const handleGenerate = async () => {
     if (!audioContext.isLoaded) {
       sonnerToast("Audio System Not Ready", {
@@ -183,7 +184,7 @@ const Index = () => {
     }
   };
   
-  // Handle download track
+  // Handle download track with concurrency protection
   const handleDownloadTrack = async () => {
     // Don't proceed if download is already in progress
     if (downloadInProgress) {
