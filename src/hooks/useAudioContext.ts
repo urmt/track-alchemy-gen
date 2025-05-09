@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 
@@ -249,7 +248,7 @@ export function useAudioContext() {
     return contextIdRef.current;
   }, []);
   
-  // Play a test tone with safety checks
+  // Play a test tone with safety checks, now using master volume
   const playTestTone = useCallback(async () => {
     try {
       // Start context if not already started
@@ -270,7 +269,7 @@ export function useAudioContext() {
         return;
       }
       
-      // Use Web Audio API directly as a fallback approach that's more reliable
+      // Use Web Audio API directly, but route through masterVolume node
       try {
         // Use Web Audio API directly as fallback
         const audioCtx = state.context?.rawContext || 
@@ -283,12 +282,22 @@ export function useAudioContext() {
         gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); // Safe volume
         
         oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        
+        // Important change: Connect to master volume node instead of destination
+        if (masterVolumeRef.current) {
+          // For Tone.js Volume node, we need to connect to its input
+          gainNode.connect(masterVolumeRef.current.input);
+          console.log("Test tone connected to master volume");
+        } else {
+          // Fallback to direct connection if master volume not available
+          gainNode.connect(audioCtx.destination);
+          console.log("Test tone connected directly to destination (fallback)");
+        }
         
         oscillator.start();
         oscillator.stop(audioCtx.currentTime + 0.5);
         
-        console.log("Test tone played with direct Web Audio API");
+        console.log("Test tone played through master volume");
       } catch (fallbackError) {
         console.error("Test tone generation failed:", fallbackError);
         setState(prev => ({
