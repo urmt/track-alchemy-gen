@@ -52,11 +52,12 @@ const Index = () => {
     return generateChordProgression(key, genre, mood);
   }, []);
   
-  // Compute disabled state for UI controls
+  // Compute disabled state for UI controls to prevent freezes
   const controlsDisabled = resetInProgress || trackAudio.isLoading || downloadInProgress;
   
   // Handle reset audio system with concurrency guard
   const handleResetAudioSystem = async () => {
+    console.debug('[INDEX] reset audio system start');
     // Guard against multiple simultaneous reset operations
     if (resetInProgress) {
       console.log("Reset already in progress, ignoring request");
@@ -73,6 +74,9 @@ const Index = () => {
     });
     
     try {
+      // Yield to UI thread before intensive operations
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
       // Stop any playing audio first
       if (trackAudio.isPlaying) {
         await trackAudio.togglePlayback();
@@ -113,11 +117,13 @@ const Index = () => {
       // Always reset flag, even if errors occur
       setResetInProgress(false);
       console.log("Audio system reset complete");
+      console.debug('[INDEX] reset audio system end');
     }
   };
   
   // Handle generate button click with improved concurrency protection
   const handleGenerate = async () => {
+    console.debug('[INDEX] generate track start');
     if (!audioContext.isLoaded) {
       sonnerToast("Audio System Not Ready", {
         description: "Audio system is not initialized properly. Try resetting the audio system.",
@@ -138,6 +144,9 @@ const Index = () => {
     }
     
     try {
+      // Yield to UI thread before generating track
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
       sonnerToast("Generating Track", {
         description: "Creating your track...",
         duration: 3000,
@@ -181,11 +190,14 @@ const Index = () => {
           },
         });
       }
+    } finally {
+      console.debug('[INDEX] generate track end');
     }
   };
   
   // Handle download track with concurrency protection
   const handleDownloadTrack = async () => {
+    console.debug('[INDEX] download WAV start');
     // Don't proceed if download is already in progress
     if (downloadInProgress) {
       console.log("Download already in progress, ignoring request");
@@ -196,6 +208,9 @@ const Index = () => {
     console.log("Starting WAV download");
     
     try {
+      // Yield to UI thread before intensive operations
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
       const result = await trackAudio.downloadTrack();
       if (result.success) {
         sonnerToast("Track Downloaded", {
@@ -220,12 +235,17 @@ const Index = () => {
     } finally {
       setDownloadInProgress(false);
       console.log("WAV download process complete");
+      console.debug('[INDEX] download WAV end');
     }
   };
   
   // Handle download MIDI
   const handleDownloadMidi = async () => {
+    console.debug('[INDEX] download MIDI start');
     try {
+      // Yield to UI thread before intensive operations
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
       const result = trackAudio.downloadMidi();
       if (result.success) {
         sonnerToast("MIDI Downloaded", {
@@ -247,6 +267,8 @@ const Index = () => {
         dismissible: true,
         duration: 8000,
       });
+    } finally {
+      console.debug('[INDEX] download MIDI end');
     }
   };
   
@@ -369,7 +391,7 @@ const Index = () => {
                   
                   <Button
                     onClick={handleDownloadMidi}
-                    disabled={!trackAudio.isTrackGenerated}
+                    disabled={controlsDisabled || !trackAudio.isTrackGenerated}
                     className="flex items-center gap-2 bg-studio-accent hover:bg-studio-highlight text-white"
                     type="button"
                     title="Download as MIDI file (pattern only, no samples)"

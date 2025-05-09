@@ -6,7 +6,7 @@ import { InstrumentTrack } from './types';
 export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean) {
   const [masterMeterValue, setMasterMeterValue] = useState(0);
   const masterAnalyserRef = useRef<Tone.Analyser | null>(null);
-  const meterIntervalRef = useRef<number | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   // Set up master analyser
   const setupMasterAnalyser = useCallback((masterVolume: Tone.Volume | null) => {
@@ -38,16 +38,16 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>
   ) => {
-    // Clear any existing interval to prevent duplicates
-    if (meterIntervalRef.current) {
-      clearInterval(meterIntervalRef.current);
-      meterIntervalRef.current = null;
+    // Cancel any existing animation frame to prevent duplicates
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
     }
     
     console.log("Starting meter monitoring, playback state:", isPlaying ? "playing" : "stopped");
     
-    // Set up a new interval for meter updates
-    meterIntervalRef.current = window.setInterval(() => {
+    // Function to run on each animation frame
+    function meterLoop() {
       // Update each instrument meter
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.analyser) {
@@ -116,13 +116,19 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       } else if (masterMeterValue > 0) {
         setMasterMeterValue(0);
       }
-    }, 100); // Update every 100ms for responsive but efficient meter movement
+      
+      // Continue animation loop
+      rafIdRef.current = requestAnimationFrame(meterLoop);
+    }
+    
+    // Start the animation loop
+    meterLoop();
     
     // Return cleanup function
     return () => {
-      if (meterIntervalRef.current) {
-        clearInterval(meterIntervalRef.current);
-        meterIntervalRef.current = null;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
         console.log("Meter monitoring stopped");
       }
     };
@@ -131,9 +137,9 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
   // Clean up when component unmounts
   useEffect(() => {
     return () => {
-      if (meterIntervalRef.current) {
-        clearInterval(meterIntervalRef.current);
-        meterIntervalRef.current = null;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
         console.log("Meter monitoring cleanup on unmount");
       }
       
