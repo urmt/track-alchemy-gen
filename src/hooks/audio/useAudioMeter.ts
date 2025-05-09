@@ -16,8 +16,9 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         masterAnalyserRef.current.dispose();
       }
       
-      // Create level analyser for more efficient meter readings
-      const analyser = new Tone.Analyser('level', 128);
+      // Create waveform analyser instead of 'level' analyser (which is not a valid type)
+      // Valid analyser types in Tone.js are 'waveform' or 'fft'
+      const analyser = new Tone.Analyser('waveform', 128);
       masterVolume.connect(analyser);
       masterAnalyserRef.current = analyser;
       console.log("Master analyser connected");
@@ -51,10 +52,18 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       Object.values(instrumentsRef.current).forEach(instrument => {
         if (instrument.analyser) {
           try {
-            // For level analysers, getValue() returns a single value in a Float32Array
-            const level = instrument.analyser.getValue() as Float32Array;
-            // Get the first value and convert to a reasonable meter scale (0-100)
-            const meterValue = Math.min(100, Math.max(0, level[0] * 200));
+            // For waveform analysers, getValue() returns a Float32Array of values
+            const waveform = instrument.analyser.getValue() as Float32Array;
+            
+            // Calculate RMS (root mean square) from waveform data to get amplitude
+            let sum = 0;
+            for (let i = 0; i < waveform.length; i++) {
+              sum += waveform[i] * waveform[i];
+            }
+            const rms = Math.sqrt(sum / waveform.length);
+            
+            // Convert to a reasonable meter scale (0-100)
+            const meterValue = Math.min(100, Math.max(0, rms * 400));
             
             // Only update if there's a significant change to reduce rerenders
             const currentValue = instrumentsRef.current[instrument.id].meterValue;
@@ -85,10 +94,18 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
       // Update master meter
       if (masterAnalyserRef.current) {
         try {
-          // For level analysers, getValue() returns a single value in a Float32Array
-          const masterLevel = masterAnalyserRef.current.getValue() as Float32Array;
-          // Get the first value and convert to a reasonable meter scale (0-100)
-          const masterMeterVal = Math.min(100, Math.max(0, masterLevel[0] * 200));
+          // Calculate master meter value from waveform data
+          const masterWaveform = masterAnalyserRef.current.getValue() as Float32Array;
+          
+          // Calculate RMS from waveform data to get amplitude
+          let sum = 0;
+          for (let i = 0; i < masterWaveform.length; i++) {
+            sum += masterWaveform[i] * masterWaveform[i];
+          }
+          const masterRms = Math.sqrt(sum / masterWaveform.length);
+          
+          // Convert to a reasonable meter scale (0-100)
+          const masterMeterVal = Math.min(100, Math.max(0, masterRms * 400));
           setMasterMeterValue(masterMeterVal);
         } catch (err) {
           console.warn("Error reading master meter:", err);
