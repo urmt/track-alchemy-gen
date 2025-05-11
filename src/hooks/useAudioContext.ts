@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
+import { toast } from "@/components/ui/sonner";
 
 export interface AudioContextState {
   context: Tone.BaseContext | null;
