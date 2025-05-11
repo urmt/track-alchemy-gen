@@ -74,9 +74,39 @@ function WithErrorBoundary({ children }: { children: React.ReactNode }) {
     
     window.addEventListener('unhandledrejection', rejectionHandler);
     
+    // Add global interaction handlers to resume AudioContext anywhere in the app
+    const resumeAudioContext = () => {
+      // Find any suspended AudioContexts and resume them
+      if (typeof window !== 'undefined') {
+        // Check if there's a suspended Tone.js context
+        try {
+          const Tone = window.Tone || (window as any).Tone;
+          if (Tone && Tone.getContext && Tone.getContext().rawContext) {
+            const context = Tone.getContext().rawContext as AudioContext;
+            if (context && context.state === 'suspended') {
+              console.log("Global handler: Found suspended Tone AudioContext, attempting to resume");
+              context.resume()
+                .then(() => console.log("Global handler: AudioContext resumed successfully"))
+                .catch(err => console.warn("Global handler: Failed to resume AudioContext", err));
+            }
+          }
+        } catch (err) {
+          console.warn("Global handler: Error accessing Tone context", err);
+        }
+      }
+    };
+    
+    // Attach to multiple event types for maximum compatibility
+    window.addEventListener('click', resumeAudioContext);
+    window.addEventListener('touchend', resumeAudioContext);
+    window.addEventListener('keydown', resumeAudioContext);
+    
     return () => {
       window.removeEventListener('error', errorHandler);
       window.removeEventListener('unhandledrejection', rejectionHandler);
+      window.removeEventListener('click', resumeAudioContext);
+      window.removeEventListener('touchend', resumeAudioContext);
+      window.removeEventListener('keydown', resumeAudioContext);
     };
   }, [error]);
   

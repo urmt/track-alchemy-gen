@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Tone from 'tone';
 import { toast } from "@/components/ui/sonner";
@@ -43,6 +44,7 @@ export function useAudioContext() {
   const maxRetries = 3;
   const retryRef = useRef<number>(0);
   const resetInProgressRef = useRef<boolean>(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Initialize audio context - with improved handling for invalid state errors
   useEffect(() => {
@@ -87,10 +89,22 @@ export function useAudioContext() {
         // Create a fresh AudioContext directly instead of using Tone.start()
         try {
           // Create a new Web Audio context
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          console.log("AudioContext state after creation:", audioContextRef.current.state);
+          
+          // Try to resume the context if suspended (may require user interaction)
+          if (audioContextRef.current.state === 'suspended') {
+            console.log("AudioContext is suspended, attempting to resume");
+            try {
+              await audioContextRef.current.resume();
+              console.log("AudioContext resumed successfully:", audioContextRef.current.state);
+            } catch (resumeErr) {
+              console.warn("Could not auto-resume AudioContext (may need user gesture):", resumeErr);
+            }
+          }
           
           // Initialize a new Tone context with this audio context
-          Tone.setContext(new Tone.Context(audioContext));
+          Tone.setContext(new Tone.Context(audioContextRef.current));
           await withTimeout(Tone.loaded(), 2000);
           
           const toneContext = Tone.getContext();
@@ -121,7 +135,7 @@ export function useAudioContext() {
             
             setState({
               context: toneContext,
-              isStarted: true, // Mark as started since we've initialized directly
+              isStarted: toneContext.state === 'running', // Only mark as started if actually running
               isLoaded: true,
               error: null,
               masterVolume,
@@ -171,12 +185,37 @@ export function useAudioContext() {
     // Start initialization
     initContext();
     
+    // Add global click handler for resuming suspended context
+    const handleGlobalInteraction = () => {
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        console.log("Attempting to resume AudioContext from global interaction handler");
+        audioContextRef.current.resume()
+          .then(() => {
+            console.log("AudioContext resumed via global interaction:", audioContextRef.current?.state);
+            if (!state.isStarted) {
+              setState(prev => ({ ...prev, isStarted: true }));
+            }
+          })
+          .catch(err => console.warn("Failed to resume from global handler:", err));
+      }
+    };
+    
+    // Add multiple event listeners for maximum compatibility
+    window.addEventListener('click', handleGlobalInteraction);
+    window.addEventListener('touchend', handleGlobalInteraction);
+    window.addEventListener('keydown', handleGlobalInteraction);
+    
     return () => {
       // Clean up
       if (masterVolumeRef.current) {
         masterVolumeRef.current.dispose();
         masterVolumeRef.current = null;
       }
+      
+      // Remove global event listeners
+      window.removeEventListener('click', handleGlobalInteraction);
+      window.removeEventListener('touchend', handleGlobalInteraction);
+      window.removeEventListener('keydown', handleGlobalInteraction);
     };
   }, []);
 
@@ -190,13 +229,22 @@ export function useAudioContext() {
       
       console.log("Starting audio context...");
       
-      if (state.context) {
+      if (state.context && state.context.rawContext) {
         // Try to resume the context directly
-        await withTimeout(state.context.resume(), 2000);
+        const rawContext = state.context.rawContext as AudioContext;
+        console.log("AudioContext state before resume:", rawContext.state);
         
-        setState(prev => ({ ...prev, isStarted: true }));
-        console.log("Audio context started successfully");
-        return true;
+        try {
+          await withTimeout(rawContext.resume(), 2000);
+          console.log("AudioContext state after resume:", rawContext.state);
+          
+          setState(prev => ({ ...prev, isStarted: true }));
+          console.log("Audio context started successfully");
+          return true;
+        } catch (resumeErr) {
+          console.error("Failed to resume audio context:", resumeErr);
+          throw resumeErr; // Re-throw to trigger the outer catch block
+        }
       } else {
         throw new Error("No audio context available");
       }
@@ -252,10 +300,12 @@ export function useAudioContext() {
   // Play a test tone with safety checks, properly routed through master volume
   const playTestTone = useCallback(async () => {
     try {
-      // Start context if not already started
+      // Start context if not already started (this already handles user gesture requirement)
       if (!state.isStarted) {
+        console.log("Test tone: Context not started, trying to start");
         const success = await startContext();
         if (!success) {
+          console.error("Failed to start audio context for test tone");
           toast("Audio Context Error", {
             description: "Could not start audio context. Please check your browser's audio permissions.",
             dismissible: true,
@@ -267,19 +317,36 @@ export function useAudioContext() {
       
       // Safety check for master volume
       if (!masterVolumeRef.current) {
-        console.error("Master volume not initialized");
-        setState(prev => ({
-          ...prev,
-          error: "Audio system not ready. Please try again."
-        }));
+        console.error("Master volume not initialized for test tone");
+        toast("Audio System Error", {
+          description: "Audio system not ready. Please try again.",
+          dismissible: true,
+          duration: 5000
+        });
         return;
       }
       
-      // Use Web Audio API directly, but route through masterVolume node
+      console.log("Playing test tone through master volume");
+      
+      // Use current audio context from our refs
       try {
-        // Use Web Audio API directly as fallback
-        const audioCtx = state.context?.rawContext || 
-                         new (window.AudioContext || (window as any).webkitAudioContext)();
+        // Get the raw AudioContext directly from Tone.js
+        const audioCtx = (state.context?.rawContext as AudioContext) || audioContextRef.current;
+        
+        if (!audioCtx) {
+          throw new Error("No AudioContext available for test tone");
+        }
+        
+        console.log("Test tone AudioContext state:", audioCtx.state);
+        
+        // If context is suspended, try to resume it
+        if (audioCtx.state === 'suspended') {
+          console.log("AudioContext is suspended before test tone, trying to resume");
+          await audioCtx.resume();
+          console.log("AudioContext state after resume:", audioCtx.state);
+        }
+        
+        // Create audio nodes
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         
@@ -287,36 +354,40 @@ export function useAudioContext() {
         oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
         gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); // Safe volume
         
+        // Connect the oscillator to the gain node
         oscillator.connect(gainNode);
         
-        // Important change: Connect to master volume node instead of destination
+        // Connect to master volume node properly
         if (masterVolumeRef.current) {
           // For Tone.js Volume node, we need to connect to its input
           gainNode.connect(masterVolumeRef.current.input);
-          console.log("Test tone connected to master volume");
+          console.log("Test tone connected to master volume node");
         } else {
-          // Fallback to direct connection if master volume not available
+          // Fallback direct connection if master volume not available
           gainNode.connect(audioCtx.destination);
-          console.log("Test tone connected directly to destination (fallback)");
+          console.warn("Test tone connected directly to destination (fallback)");
         }
         
+        // Start and stop the oscillator
         oscillator.start();
         oscillator.stop(audioCtx.currentTime + 0.5);
         
-        console.log("Test tone played through master volume");
-      } catch (fallbackError) {
-        console.error("Test tone generation failed:", fallbackError);
-        setState(prev => ({
-          ...prev,
-          error: "Could not play test tone. Please check audio permissions and autoplay settings."
-        }));
+        console.log("Test tone played successfully");
+      } catch (toneError) {
+        console.error("Test tone generation failed:", toneError);
+        toast("Test Tone Error", {
+          description: "Could not play test tone. Please check audio permissions and autoplay settings.",
+          dismissible: true,
+          duration: 5000
+        });
       }
     } catch (err) {
       console.error("Error playing test tone:", err);
-      setState(prev => ({ 
-        ...prev, 
-        error: "Failed to play test tone. Please check your browser's audio permissions." 
-      }));
+      toast("Audio Error", {
+        description: "Failed to play test tone. Please check your browser's audio permissions.",
+        dismissible: true,
+        duration: 5000
+      });
       
       // Try reset on failure
       resetContext().catch(e => console.error("Failed to reset after test tone error:", e));
@@ -389,6 +460,18 @@ export function useAudioContext() {
       try {
         // Create a new Web Audio context
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContextRef.current = audioContext;
+        console.log("Created new AudioContext, state:", audioContext.state);
+        
+        // Try to resume the context if it's suspended
+        if (audioContext.state === 'suspended') {
+          try {
+            await audioContext.resume();
+            console.log("AudioContext resumed during reset:", audioContext.state);
+          } catch (resumeErr) {
+            console.warn("Could not resume AudioContext during reset (may need user gesture):", resumeErr);
+          }
+        }
         
         // Initialize a new Tone context with this audio context
         Tone.setContext(new Tone.Context(audioContext));
@@ -406,7 +489,7 @@ export function useAudioContext() {
           
           setState({
             context: newContext,
-            isStarted: true,
+            isStarted: newContext.state === 'running',
             isLoaded: true,
             error: null,
             masterVolume: newMasterVolume,
@@ -449,6 +532,7 @@ export function useAudioContext() {
     setMasterVolume,
     playTestTone,
     getContextId,
-    resetContext
+    resetContext,
+    getAudioContext: useCallback(() => audioContextRef.current, [])
   };
 }

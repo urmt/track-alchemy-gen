@@ -19,7 +19,7 @@ const TestTone: React.FC<TestToneProps> = ({ playTestTone }) => {
       duration: 2000
     });
     
-    // Try to play the test tone
+    // Try to play the test tone inside user gesture handler (click event)
     try {
       playTestTone();
     } catch (err) {
