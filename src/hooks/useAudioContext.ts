@@ -248,13 +248,18 @@ export function useAudioContext() {
     return contextIdRef.current;
   }, []);
   
-  // Play a test tone with safety checks, now using master volume
+  // Play a test tone with safety checks, properly routed through master volume
   const playTestTone = useCallback(async () => {
     try {
       // Start context if not already started
       if (!state.isStarted) {
         const success = await startContext();
         if (!success) {
+          toast("Audio Context Error", {
+            description: "Could not start audio context. Please check your browser's audio permissions.",
+            dismissible: true,
+            duration: 5000
+          });
           return;
         }
       }
@@ -302,14 +307,14 @@ export function useAudioContext() {
         console.error("Test tone generation failed:", fallbackError);
         setState(prev => ({
           ...prev,
-          error: "Could not play test tone. Please check audio permissions."
+          error: "Could not play test tone. Please check audio permissions and autoplay settings."
         }));
       }
     } catch (err) {
       console.error("Error playing test tone:", err);
       setState(prev => ({ 
         ...prev, 
-        error: "Failed to play test tone. Please try again." 
+        error: "Failed to play test tone. Please check your browser's audio permissions." 
       }));
       
       // Try reset on failure

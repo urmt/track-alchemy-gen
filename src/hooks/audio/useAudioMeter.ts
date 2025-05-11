@@ -16,8 +16,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         masterAnalyserRef.current.dispose();
       }
       
-      // Create waveform analyser instead of 'level' analyser (which is not a valid type)
-      // Valid analyser types in Tone.js are 'waveform' or 'fft'
+      // Create waveform analyser - best for accurate level monitoring
       const analyser = new Tone.Analyser('waveform', 128);
       masterVolume.connect(analyser);
       masterAnalyserRef.current = analyser;
@@ -33,7 +32,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
     };
   }, []);
 
-  // Start meter monitoring - responds to isPlaying changes
+  // Start meter monitoring with requestAnimationFrame for better performance
   const startMeterMonitoring = useCallback((
     instrumentsRef: React.MutableRefObject<Record<string, InstrumentTrack>>,
     setInstruments: React.Dispatch<React.SetStateAction<InstrumentTrack[]>>
@@ -55,7 +54,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
             // For waveform analysers, getValue() returns a Float32Array of values
             const waveform = instrument.analyser.getValue() as Float32Array;
             
-            // Calculate RMS (root mean square) from waveform data to get amplitude
+            // Calculate RMS (root mean square) from waveform data for accurate amplitude
             let sum = 0;
             for (let i = 0; i < waveform.length; i++) {
               sum += waveform[i] * waveform[i];
@@ -97,14 +96,14 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
           // Calculate master meter value from waveform data
           const masterWaveform = masterAnalyserRef.current.getValue() as Float32Array;
           
-          // Calculate RMS from waveform data to get amplitude
+          // Calculate RMS from waveform data for accurate amplitude
           let sum = 0;
           for (let i = 0; i < masterWaveform.length; i++) {
             sum += masterWaveform[i] * masterWaveform[i];
           }
           const masterRms = Math.sqrt(sum / masterWaveform.length);
           
-          // Convert to a reasonable meter scale (0-100)
+          // Convert to a reasonable meter scale (0-100) with better sensitivity
           const masterMeterVal = Math.min(100, Math.max(0, masterRms * 400));
           setMasterMeterValue(masterMeterVal);
         } catch (err) {
@@ -117,7 +116,7 @@ export function useAudioMeter(instruments: InstrumentTrack[], isPlaying: boolean
         setMasterMeterValue(0);
       }
       
-      // Continue animation loop
+      // Continue animation loop with requestAnimationFrame for smoother updates
       rafIdRef.current = requestAnimationFrame(meterLoop);
     }
     

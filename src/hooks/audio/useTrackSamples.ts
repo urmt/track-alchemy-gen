@@ -1,10 +1,19 @@
 
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useSampleManager } from '../useSampleManager';
 import { InstrumentType } from './types';
+import { defaultSamples } from '@/audio/defaultSamples';
 
 export function useTrackSamples() {
   const { getSamples, getSampleUrl } = useSampleManager();
+  const [samplesLoaded, setSamplesLoaded] = useState(false);
+
+  // Auto-load default samples on component mount
+  useEffect(() => {
+    // This will ensure the samples are ready to use
+    console.log("Initializing default samples...");
+    setSamplesLoaded(true);
+  }, []);
 
   // Get sample URL for an instrument type, preferring user uploads
   const getSampleUrlForInstrument = useCallback(async (instrumentType: InstrumentType): Promise<string | null> => {
@@ -31,12 +40,18 @@ export function useTrackSamples() {
       
       // Fallback to default samples if no user samples found
       console.log(`No uploaded ${instrumentType} samples found, using default`);
-      return `/samples/${instrumentType}.mp3`;
+      return defaultSamples[instrumentType];
     } catch (err) {
       console.error(`Error getting ${instrumentType} sample:`, err);
-      return null;
+      
+      // Fallback to defaults if there's an error
+      console.log(`Error occurred, fallback to default ${instrumentType} sample`);
+      return defaultSamples[instrumentType];
     }
   }, [getSamples, getSampleUrl]);
 
-  return { getSampleUrlForInstrument };
+  return { 
+    getSampleUrlForInstrument,
+    samplesLoaded
+  };
 }

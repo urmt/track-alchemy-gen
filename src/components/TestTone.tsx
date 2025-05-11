@@ -25,7 +25,7 @@ const TestTone: React.FC<TestToneProps> = ({ playTestTone }) => {
     } catch (err) {
       console.error("Error playing test tone:", err);
       toast("Error", {
-        description: "Could not play test tone. Please check your audio settings.",
+        description: "Could not play test tone. Please check your audio settings and permissions.",
         dismissible: true,
         duration: 5000
       });

@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -7,6 +6,7 @@ import { toast as sonnerToast } from "@/components/ui/sonner";
 import { Play, Pause, ChevronDown, Download, RefreshCw, FileMusic } from "lucide-react";
 import { useAudioContext } from "@/hooks/useAudioContext";
 import { useTrackAudio, type TrackSettings } from "@/hooks/audio/useTrackAudio";
+import { useTrackSamples } from "@/hooks/audio/useTrackSamples";
 import TestTone from "@/components/TestTone";
 import DebugPanel from "@/components/DebugPanel";
 import Meters from "@/components/Meters";
@@ -20,11 +20,15 @@ const Index = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [resetInProgress, setResetInProgress] = useState(false);
   const [downloadInProgress, setDownloadInProgress] = useState(false);
+  const [isPending, startTransition] = useTransition();
   
   // Set up audio context
   const audioContext = useAudioContext();
   
-  // Set up track audio - fixing the type mismatch for the startContext prop
+  // Get track samples
+  const { samplesLoaded } = useTrackSamples();
+  
+  // Set up track audio
   const trackAudio = useTrackAudio({
     masterVolume: audioContext.masterVolume,
     isStarted: audioContext.isStarted,
@@ -53,7 +57,7 @@ const Index = () => {
   }, []);
   
   // Compute disabled state for UI controls to prevent freezes
-  const controlsDisabled = resetInProgress || trackAudio.isLoading || downloadInProgress;
+  const controlsDisabled = resetInProgress || trackAudio.isLoading || downloadInProgress || isPending || !samplesLoaded;
   
   // Handle reset audio system with concurrency guard
   const handleResetAudioSystem = async () => {
@@ -143,56 +147,61 @@ const Index = () => {
       return;
     }
     
-    try {
-      // Yield to UI thread before generating track
-      await new Promise(resolve => setTimeout(resolve, 0));
-      
-      sonnerToast("Generating Track", {
-        description: "Creating your track...",
-        duration: 3000,
-      });
-      
-      await trackAudio.generateTrack(trackSettings);
-      
-      // Generate chord progression (just for display in this version)
-      const progression = getChordProgression(
-        trackSettings.key, 
-        trackSettings.genre, 
-        trackSettings.mood
-      );
-      
-      sonnerToast("Track Generated", {
-        description: `Created ${trackSettings.genre} track in ${trackSettings.key} with progression: ${progression.join(' - ')}`,
-        dismissible: true,
-        duration: 5000,
-      });
-    } catch (error) {
-      console.error("Generation failed:", error);
-      
-      // Special handling for context mismatch errors
-      if (error instanceof Error && error.message.includes('context')) {
-        sonnerToast("Audio Context Error", {
-          description: "Audio system encountered a context error. Try resetting the audio system.",
-          duration: 8000,
-          action: {
-            label: "Reset Audio",
-            onClick: handleResetAudioSystem
-          },
-        });
-      } else {
-        sonnerToast("Generation Failed", {
-          description: "Could not generate track. Try resetting the audio system.",
-          dismissible: true,
-          duration: 8000,
-          action: {
-            label: "Reset Audio",
-            onClick: handleResetAudioSystem
-          },
-        });
-      }
-    } finally {
-      console.debug('[INDEX] generate track end');
-    }
+    // Use React transitions for expensive UI updates
+    startTransition(() => {
+      (async () => {
+        try {
+          // Yield to UI thread before generating track
+          await new Promise(resolve => setTimeout(resolve, 0));
+          
+          sonnerToast("Generating Track", {
+            description: "Creating your track...",
+            duration: 3000,
+          });
+          
+          await trackAudio.generateTrack(trackSettings);
+          
+          // Generate chord progression (just for display in this version)
+          const progression = getChordProgression(
+            trackSettings.key, 
+            trackSettings.genre, 
+            trackSettings.mood
+          );
+          
+          sonnerToast("Track Generated", {
+            description: `Created ${trackSettings.genre} track in ${trackSettings.key} with progression: ${progression.join(' - ')}`,
+            dismissible: true,
+            duration: 5000,
+          });
+        } catch (error) {
+          console.error("Generation failed:", error);
+          
+          // Special handling for context mismatch errors
+          if (error instanceof Error && error.message.includes('context')) {
+            sonnerToast("Audio Context Error", {
+              description: "Audio system encountered a context error. Try resetting the audio system.",
+              duration: 8000,
+              action: {
+                label: "Reset Audio",
+                onClick: handleResetAudioSystem
+              },
+            });
+          } else {
+            sonnerToast("Generation Failed", {
+              description: "Could not generate track. Try resetting the audio system.",
+              dismissible: true,
+              duration: 8000,
+              action: {
+                label: "Reset Audio",
+                onClick: handleResetAudioSystem
+              },
+            });
+          }
+        } finally {
+          console.debug('[INDEX] generate track end');
+        }
+      })();
+    });
   };
   
   // Handle download track with concurrency protection
@@ -315,6 +324,18 @@ const Index = () => {
     console.log("Debug mode toggled:", checked);
     setShowDebug(checked);
   };
+  
+  // Auto-reset audio context if still not initialized after 10 seconds
+  useEffect(() => {
+    if (!audioContext.isLoaded && !resetInProgress) {
+      const timer = setTimeout(() => {
+        console.log("Auto-resetting audio context after initialization timeout");
+        handleResetAudioSystem();
+      }, 10000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [audioContext.isLoaded, resetInProgress]);
   
   return (
     <div className="min-h-screen bg-studio-bg text-white">
